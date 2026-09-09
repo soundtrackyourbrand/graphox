@@ -38,18 +38,19 @@ fn each_kind_has_its_own_defaults() {
 
     assert_eq!(rules[0].kind, RepeatedSelectionKind::MatchesFragment);
     assert_eq!(rules[0].severity, Severity::Error);
-    assert_eq!(rules[0].min_fields, 2);
+    assert_eq!(rules[0].min_fields, 3);
     // A single re-inlined copy is already a finding.
     assert_eq!(rules[0].min_uses, 1);
 
     assert_eq!(rules[1].kind, RepeatedSelectionKind::ExtendsFragment);
     assert_eq!(rules[1].severity, Severity::Warning);
+    assert_eq!(rules[1].min_fields, 4);
     assert_eq!(rules[1].min_uses, 1);
 
     assert_eq!(rules[2].kind, RepeatedSelectionKind::NewFragment);
-    assert_eq!(rules[2].severity, Severity::Warning);
-    assert_eq!(rules[2].min_fields, 4);
-    assert_eq!(rules[2].min_uses, 3);
+    assert_eq!(rules[2].severity, Severity::Info);
+    assert_eq!(rules[2].min_fields, 6);
+    assert_eq!(rules[2].min_uses, 4);
 }
 
 #[test]

@@ -370,29 +370,34 @@ rules:
   repeated_selections:
     # A selection that is exactly a fragment that already exists.
     - kind: matches_fragment
-      min_fields: 2
-      severity: error
 
     # A selection containing a fragment's fields, plus more.
     - kind: extends_fragment
-      min_fields: 3
-      severity: warning
 
-    # A group of fields that recurs with no fragment for it.
+    # A group of fields that recurs with no fragment for it. Every key below is
+    # optional; these are the defaults.
     - kind: new_fragment
-      min_fields: 4
-      min_uses: 3
-      severity: warning
+      min_fields: 6
+      min_uses: 4
+      severity: info
       ignore_types: [PageInfo]
 ```
 
-| Kind | Default `min_fields` | Default severity |
-|------|----------------------|------------------|
-| `matches_fragment` | 2 | `error` |
-| `extends_fragment` | 3 | `warning` |
-| `new_fragment` | 4 | `warning` |
+| Kind | Default `min_fields` | Default `min_uses` | Default severity |
+|------|----------------------|--------------------|------------------|
+| `matches_fragment` | 3 | — | `error` |
+| `extends_fragment` | 4 | — | `warning` |
+| `new_fragment` | 6 | 4 | `info` |
 
-`min_uses` applies only to `new_fragment`, and defaults to 3. The other two
+The defaults come from sweeping thresholds over a large workspace that had never
+run the rule. `min_fields` is the knob that matters: raising it by two cuts
+findings several times over, while `min_uses` barely moves them, because a wide
+selection that recurs is a missing fragment almost by definition and a narrow one
+is usually just a common field. Only `matches_fragment` defaults to an error —
+an exact copy of a fragment that exists is clear-cut, while the other two are
+judgement calls a codebase should not have to settle to stay green.
+
+`min_uses` applies only to `new_fragment`. The other two
 kinds report a single occurrence: one hand-rolled copy of a fragment that exists
 is already the drift the rule is about, since a field added to the fragment
 reaches every spread and misses every copy. Setting `min_uses` on them is

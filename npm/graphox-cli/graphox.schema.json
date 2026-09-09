@@ -224,17 +224,17 @@
         "min_fields": {
           "type": "integer",
           "minimum": 1,
-          "description": "Members a selection must share to be reported. Fields that required_fields mandates do not count. Defaults to 2 for matches_fragment, 3 for extends_fragment and 4 for new_fragment."
+          "description": "Members a selection must share to be reported. Fields that required_fields mandates do not count. Defaults to 3 for matches_fragment, 4 for extends_fragment and 6 for new_fragment."
         },
         "min_uses": {
           "type": "integer",
           "minimum": 1,
-          "default": 3,
+          "default": 4,
           "description": "Distinct definitions that must share a group. Only applies to new_fragment: one selection re-inlining an existing fragment is already a finding."
         },
         "severity": {
           "$ref": "#/definitions/Severity",
-          "description": "Defaults to error for matches_fragment and warning for the other two."
+          "description": "Defaults to error for matches_fragment, warning for extends_fragment and info for new_fragment."
         },
         "ignore_types": {
           "type": "array",

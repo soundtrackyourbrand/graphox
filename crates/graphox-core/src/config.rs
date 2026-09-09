@@ -272,18 +272,31 @@ impl RepeatedSelectionKind {
         self == Self::NewFragment
     }
 
+    /// Chosen by sweeping thresholds over a large workspace that had never run
+    /// the rule. Wider is the better knob: raising `min_fields` by two cuts
+    /// findings several times over, while raising `min_uses` barely moves them,
+    /// because a wide selection that recurs is a missing fragment almost by
+    /// definition and a narrow one is usually just a common field.
     fn default_min_fields(self) -> usize {
         match self {
-            Self::MatchesFragment => 2,
-            Self::ExtendsFragment => 3,
-            Self::NewFragment => 4,
+            Self::MatchesFragment => 3,
+            Self::ExtendsFragment => 4,
+            Self::NewFragment => 6,
         }
     }
 
+    fn default_min_uses(self) -> usize {
+        if self.counts_uses() { 4 } else { 1 }
+    }
+
+    /// Only an exact copy of a fragment that exists is clear-cut enough to
+    /// block on. The other two are judgement calls, and a codebase meeting the
+    /// rule for the first time should not have to settle them to stay green.
     fn default_severity(self) -> Severity {
         match self {
             Self::MatchesFragment => Severity::Error,
-            Self::ExtendsFragment | Self::NewFragment => Severity::Warning,
+            Self::ExtendsFragment => Severity::Warning,
+            Self::NewFragment => Severity::Info,
         }
     }
 }
@@ -305,7 +318,7 @@ impl RepeatedSelectionsRule {
         Self {
             kind,
             min_fields: kind.default_min_fields(),
-            min_uses: if kind.counts_uses() { 3 } else { 1 },
+            min_uses: kind.default_min_uses(),
             severity: kind.default_severity(),
             ignore_types: Vec::new(),
         }
