@@ -1,8 +1,9 @@
 # Analyzing
 
 `graphox analyze` inspects how a workspace uses GraphQL. Its tools are reading
-tools, not gates: they never fail, and they are meant to be run by hand while
-deciding what to change.
+tools, not gates: nothing they find fails the command, though asking for a scope
+that matches nothing — an `--app` naming no project — is still an error. They
+are meant to be run by hand while deciding what to change.
 
 | Tool | Question it answers |
 |------|---------------------|
