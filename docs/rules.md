@@ -428,8 +428,8 @@ discounted only when every project selecting it has it imposed.
 this one compares across documents, so there is no single line that owns a
 finding.
 
-Use [`graphox analyze`](./analyze.md) to explore findings before choosing
-thresholds — it runs the same analysis without failing anything.
+Use [`graphox analyze selections`](./analyze.md) to explore findings before
+choosing thresholds — it runs the same analysis without failing anything.
 
 ---
 

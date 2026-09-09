@@ -17,14 +17,9 @@ use apollo_compiler::validation::Valid;
 use apollo_compiler::{ExecutableDocument, Schema};
 use graphox_core::config::{RepeatedSelectionKind, RepeatedSelectionsRule, Severity};
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
-/// A file to analyse, as its GraphQL source with host-language code masked out.
-pub struct DocumentSource<'a> {
-    pub path: &'a Path,
-    pub project_idx: usize,
-    pub source: &'a str,
-}
+pub use super::{Definition, DefinitionKind, DocumentSource};
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -53,20 +48,6 @@ impl Default for Options {
             mandated_by_project: AHashMap::default(),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DefinitionKind {
-    Operation,
-    Fragment,
-}
-
-#[derive(Debug, Clone)]
-pub struct Definition {
-    pub name: String,
-    pub kind: DefinitionKind,
-    pub path: PathBuf,
-    pub project_idx: usize,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

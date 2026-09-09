@@ -21,3 +21,4 @@ mod suffix_consistency;
 mod swc_cli;
 mod template_tags;
 mod tsx_support;
+mod usage_cli;

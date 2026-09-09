@@ -1,9 +1,8 @@
 use colored::*;
 use graphox_core::Config;
 use graphox_core::engine::Engine;
-use graphox_features::analysis::repeated_selections::{
-    self, Analysis, DefinitionKind, DocumentSource, OverlapKind, Scope,
-};
+use graphox_features::analysis::repeated_selections::{self, Analysis, OverlapKind, Scope};
+use graphox_features::analysis::{DefinitionKind, DocumentSource};
 
 use super::{build_validated_schemas, documents_by_schema, mandated_fields_by_project};
 
