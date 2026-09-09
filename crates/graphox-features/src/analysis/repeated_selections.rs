@@ -129,8 +129,9 @@ pub struct Overlap {
     pub site: Site,
     /// What the site selects beyond the fragment, for `Extends`.
     pub extra: Vec<String>,
-    /// Members the site shares with the fragment, which is the fragment's own
-    /// width. What a threshold on this finding is about.
+    /// The fragment's own width, counting only members that describe the
+    /// selection. What a threshold on this finding is about, and measured the
+    /// same way as a group's, so an entry's `min_fields` means one thing.
     pub shared: usize,
 }
 
@@ -317,7 +318,7 @@ pub fn analyze(schema: &Valid<Schema>, docs: &[DocumentSource<'_>], opts: &Optio
         }
     }
 
-    analysis.overlaps = find_overlaps(&occurrences, &fragment_shapes, &analysis.definitions);
+    analysis.overlaps = find_overlaps(&occurrences, &fragment_shapes, &analysis.definitions, opts);
     analysis.groups = find_groups(&occurrences, &analysis.definitions, &fragment_shapes, opts);
     analysis
 }
@@ -327,6 +328,7 @@ fn find_overlaps(
     occurrences: &[Occurrence],
     fragments: &[FragmentShape],
     definitions: &[Definition],
+    opts: &Options,
 ) -> Vec<Overlap> {
     let mut by_type: AHashMap<&str, Vec<&FragmentShape>> = AHashMap::default();
     for shape in fragments {
@@ -378,7 +380,7 @@ fn find_overlaps(
                 fragment: shape.name.clone(),
                 type_name: occurrence.type_name.clone(),
                 kind,
-                shared: shape.members.len(),
+                shared: counted_members(shape.members.iter(), opts),
                 site: Site {
                     definition: occurrence.definition,
                     exact: extra.is_empty(),
@@ -404,13 +406,22 @@ fn find_overlaps(
     out
 }
 
-/// How many of `members` count toward a threshold. A mandated field is present
+/// How many members count toward a threshold. A mandated field is present
 /// because graphox put it there, so it does not describe the selection.
-fn counted_width(members: &[String], opts: &Options) -> usize {
+///
+/// Every threshold measures width this way, including the one on an overlap:
+/// otherwise an entry's `min_fields` would mean one thing for a group and
+/// another for a fragment, and whether a finding appeared would depend on the
+/// thresholds of the *other* entries, through the width at which selection sets
+/// are collected at all.
+fn counted_members<'a>(members: impl Iterator<Item = &'a String>, opts: &Options) -> usize {
     members
-        .iter()
         .filter(|m| !opts.uncounted_fields.contains(m.as_str()))
         .count()
+}
+
+fn counted_width(members: &[String], opts: &Options) -> usize {
+    counted_members(members.iter(), opts)
 }
 
 /// Field groups shared by enough definitions to be worth extracting.
