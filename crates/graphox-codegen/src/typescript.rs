@@ -246,6 +246,10 @@ pub fn generate_typescript_with_profile(
             let result =
                 generate_selection_set(&op.selection_set, root_type, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
+            // Before the separator, so the blank line between two definitions
+            // belongs to the one that introduced it and the per-definition
+            // counts still sum to `bodies`.
+            let bodies_start = bodies.len();
             if !bodies.is_empty() {
                 bodies.push('\n');
             }
@@ -287,6 +291,7 @@ pub fn generate_typescript_with_profile(
                 }
             }
             bodies.push_str("}>;\n");
+            let type_bytes = bodies.len() - bodies_start;
             let vars_type = v_name.clone();
             let variables_optional = op.variables.is_empty()
                 || op
@@ -362,6 +367,7 @@ pub fn generate_typescript_with_profile(
             export.push_str(", ");
             export.push_str(&vars_type);
             export.push_str(">;\n");
+            let ast_bytes = export.len();
 
             if let Some(hook_block) = generate_react_apollo_hook_block(
                 &operation_type_name,
@@ -376,6 +382,8 @@ pub fn generate_typescript_with_profile(
             }
 
             let hook_names = hook_names_for_operation(&operation_type_name, op.operation_type, ctx);
+            // Read before `export` is moved into `document_asts`.
+            let export_bytes = export.len();
 
             document_asts.push(DocumentAstInfo {
                 raw_name: raw_name.to_string(),
@@ -393,6 +401,8 @@ pub fn generate_typescript_with_profile(
                 hook_names,
                 source_text: block_text.clone(),
                 codegen_path: ctx.current_file_path.to_path_buf(),
+                generated_bytes: type_bytes + export_bytes,
+                ast_bytes,
             });
         }
 
@@ -429,6 +439,7 @@ pub fn generate_typescript_with_profile(
                 generate_selection_set(&frag.selection_set, root_type, ctx, 0, &mut used_fragments);
             profile.selection_set_time += sel_start.elapsed();
 
+            let bodies_start = bodies.len();
             if !bodies.is_empty() {
                 bodies.push('\n');
             }
@@ -460,6 +471,8 @@ pub fn generate_typescript_with_profile(
                 bodies.push_str(&result.type_str);
                 bodies.push('\n');
             }
+
+            let type_bytes = bodies.len() - bodies_start;
 
             let mut doc_export = String::new();
             let mut doc_deps = HashSet::default();
@@ -553,6 +566,11 @@ pub fn generate_typescript_with_profile(
                 doc_export.push_str(";\n};\n");
             }
 
+            // A fragment has a document export only when it reaches the bundle
+            // as data: `generate_ast_for_fragments`, or masking's `__fragment`
+            // carrier. Otherwise it is types alone, and this is zero.
+            let export_bytes = doc_export.len();
+
             if !doc_export.is_empty() {
                 document_asts.push(DocumentAstInfo {
                     raw_name: raw_name.to_string(),
@@ -569,6 +587,8 @@ pub fn generate_typescript_with_profile(
                 source_text: block_text.clone(),
                 document_name: fragment_document_name,
                 codegen_path: ctx.current_file_path.to_path_buf(),
+                generated_bytes: type_bytes + export_bytes,
+                ast_bytes: export_bytes,
             });
         }
     }
@@ -835,4 +855,139 @@ fn topological_sort_documents(docs: &[DocumentAstInfo]) -> Vec<&DocumentAstInfo>
         .into_iter()
         .filter_map(|name| name_to_doc.get(name).copied())
         .collect::<Vec<_>>()
+}
+
+#[cfg(test)]
+mod byte_attribution_tests {
+    use super::*;
+    use apollo_compiler::Schema;
+    use graphox_core::config::CodegenConfig;
+    use graphox_core::document::DocumentState;
+    use ls_types::PositionEncodingKind;
+    use std::cell::RefCell;
+
+    const SCHEMA: &str = "type Query { user(id: ID!): User } \
+         type User { id: ID! name: String email: String }";
+
+    const DOCUMENT: &str = "query Reconcile($id: ID!) {
+  user(id: $id) {
+    id
+    ...ReconcileUser
+  }
+}
+
+fragment ReconcileUser on User {
+  name
+  email
+}
+";
+
+    /// Where the first generated declaration starts, which is where `bodies`
+    /// was appended. Everything from here to the end of the file is what the
+    /// per-definition counts claim to describe.
+    fn first_declaration(output: &str, name: &str) -> usize {
+        let as_type = output.find(&format!("export type {name}"));
+        let as_interface = output.find(&format!("export interface {name}"));
+        as_type
+            .into_iter()
+            .chain(as_interface)
+            .min()
+            .unwrap_or_else(|| panic!("no declaration of {name} in:\n{output}"))
+    }
+
+    fn generate(
+        generate_ast_for_fragments: bool,
+    ) -> (String, Vec<OperationGenerated>, Vec<FragmentGenerated>) {
+        let schema = Schema::parse(SCHEMA, "schema.graphql").unwrap();
+        let valid_schema = schema.validate().expect("schema should be valid");
+
+        let path = Path::new("/reconcile.graphql");
+        let uri = graphox_core::utils::path_to_uri(path).expect("path should map to a URI");
+        let doc = DocumentState::new_from_thread_local(uri, DOCUMENT, PositionEncodingKind::UTF8);
+
+        let caches = crate::context::SchemaAnalysisCaches::new();
+        let fragment_to_path = HashMap::default();
+        let fragment_output_paths = HashMap::default();
+        let fragment_to_import = HashMap::default();
+        let fragment_to_type_only = HashMap::default();
+        let all_fragments = HashMap::default();
+        let name_to_id = HashMap::default();
+        let fragment_dependencies = HashMap::default();
+        let scalars = HashMap::default();
+        let schema_import = None;
+        let type_imports = HashMap::default();
+        let config = CodegenConfig::default();
+
+        let ctx = CodegenContext {
+            schema: &valid_schema,
+            fragment_to_path: &fragment_to_path,
+            fragment_output_paths: &fragment_output_paths,
+            fragment_to_import: &fragment_to_import,
+            fragment_to_type_only: &fragment_to_type_only,
+            all_fragments: &all_fragments,
+            name_to_id: &name_to_id,
+            current_file_path: path,
+            scalars: &scalars,
+            schema_import: &schema_import,
+            type_imports: &type_imports,
+            generate_ast_for_fragments,
+            fragment_dependencies: &fragment_dependencies,
+            type_cache: &caches,
+            config: &config,
+            masking_import_path: String::new(),
+            used_schema_types: RefCell::new(HashSet::default()),
+            codegen_path: path.to_path_buf(),
+            context_fingerprint: 0,
+        };
+
+        generate_typescript(&doc, &ctx).expect("codegen should succeed")
+    }
+
+    /// The point of the counts is that they add up: a per-project total is a sum
+    /// of them, so anything double-counted or dropped would misattribute the
+    /// output. Everything from the first generated declaration onwards is
+    /// `bodies` followed by the document ASTs, and nothing else is.
+    #[test]
+    fn per_definition_bytes_account_for_the_whole_output_tail() {
+        for generate_ast_for_fragments in [true, false] {
+            let (output, ops, frags) = generate(generate_ast_for_fragments);
+
+            let attributed: usize = ops
+                .iter()
+                .map(|op| op.generated_bytes)
+                .chain(frags.iter().map(|frag| frag.generated_bytes))
+                .sum();
+
+            let tail = output.len() - first_declaration(&output, "ReconcileQuery");
+            assert_eq!(
+                attributed, tail,
+                "attributed bytes should be the output tail \
+                 (generate_ast_for_fragments: {generate_ast_for_fragments})\n{output}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_ast_is_a_part_of_what_a_definition_generates() {
+        let (_, ops, frags) = generate(true);
+
+        let op = ops.first().expect("one operation");
+        assert!(op.ast_bytes > 0, "an operation always gets a document");
+        assert!(op.ast_bytes < op.generated_bytes, "types are counted too");
+
+        let frag = frags.first().expect("one fragment");
+        assert!(frag.ast_bytes > 0, "the fragment AST was asked for");
+        assert!(frag.ast_bytes < frag.generated_bytes);
+    }
+
+    /// A fragment nothing serializes reaches the bundle only as an erased type,
+    /// which is the distinction `ast_bytes` exists to draw.
+    #[test]
+    fn a_fragment_without_an_ast_has_no_ast_bytes() {
+        let (_, _, frags) = generate(false);
+
+        let frag = frags.first().expect("one fragment");
+        assert_eq!(frag.ast_bytes, 0);
+        assert!(frag.generated_bytes > 0, "its type is still generated");
+    }
 }

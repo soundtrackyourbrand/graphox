@@ -9,6 +9,8 @@ are meant to be run by hand while deciding what to change.
 |------|---------------------|
 | [`analyze selections`](#selections) | What is written more than once, and should be a fragment? |
 | [`analyze usage`](#usage) | What does the workspace actually select, and who selects it? |
+| [`analyze operations`](#operations) | What does each operation cost the server to answer? |
+| [`analyze codegen`](#codegen) | What does the generated TypeScript weigh, and which definition wrote it? |
 
 ---
 
@@ -145,3 +147,122 @@ a selected field look unused.
 
 `--limit` shapes the terminal view only. `--json` always emits every matching
 field, plus an `unparsed` array of files whose GraphQL did not parse.
+
+---
+
+## Operations
+
+Reports what each operation asks the server for. A gateway rejects on depth and
+charges on breadth, so this ranks operations by the properties of the request
+they send rather than of the source they were written as.
+
+```bash
+graphox analyze operations                               # deepest first
+graphox analyze operations --sort lists                  # most-multiplying first
+graphox analyze operations --name AccountOverview        # explain one
+graphox analyze operations --kind subscription
+graphox analyze operations --app apps/business
+graphox analyze operations --json | jq '.operations[] | select(.list_nesting >= 3)'
+```
+
+### What it measures
+
+| Metric | Meaning |
+|--------|---------|
+| `depth` | Longest chain of nested fields in the request |
+| `own_depth` | The same with spreads left unfollowed |
+| `fields` | Fields the response contains, and so resolver calls the request costs |
+| `list_nesting` | List-typed fields along one path, with `list_path` naming it |
+| `root_fields` | Top-level fields, which the server resolves in parallel |
+| `variables`, `spreads` | Declared variables; fragments the request pulls in |
+
+The two depths are a pair on purpose. An operation deep in its own body is one
+you rewrite; one whose depth arrives through a fragment is one where you rewrite
+what it spreads, and the numbers say which before you open the file.
+
+`list_nesting` is the highest-signal column. Each list-typed field on a path
+multiplies the size of the response, so three of them make it cubic in page
+size — the shape behind a request that is fine in development and times out on
+a large account. Each wrapper counts, so `[[Cell!]!]!` is two.
+
+### Collected, not counted twice
+
+The unit is the response, so selections are collected through spreads and
+inline fragments into the shape one reply takes, keyed by response key, as the
+spec collects fields. Two spreads that both select `id` on the same object
+describe one entry in the response and one resolver call, so they count once; an
+alias is its own entry, so it counts separately.
+
+This is the maximum response shape rather than a per-request estimate: two
+inline fragments on different type conditions both contribute their fields,
+though only the branch matching the concrete type resolves at runtime.
+
+### Scope
+
+Analysis runs once per project, not once per schema. Which fragment a spread
+resolves to is a property of the project doing the resolving — a fragment
+reaches another project only when it is `@public`, and two projects with
+overlapping `include` patterns each resolve the name to their own copy — so an
+operation is measured against the fragments its own project can see.
+
+An operation whose spread did not resolve is marked `partial`, `*` in the
+terminal and `"partial": true` in JSON. Its numbers are lower bounds: without
+saying so, an operation whose fragment is missing would read as a cheap one.
+
+`--limit` shapes the terminal view only. `--json` always emits every matching
+operation, plus an `unparsed` array of files whose GraphQL did not parse.
+
+---
+
+## Codegen
+
+Reports what the generated TypeScript weighs and which definition it came from —
+the question behind "why is this 3 MB?".
+
+```bash
+graphox analyze codegen                                  # heaviest definitions
+graphox analyze codegen --sort ast                       # by what reaches the bundle
+graphox analyze codegen --kind fragment
+graphox analyze codegen --app apps/business
+graphox analyze codegen --json | jq '.projects'
+```
+
+It generates the same output `codegen` writes and measures it instead of
+writing it, so the figures describe the real files. Nothing is written: a run
+that only reports numbers leaves no output directory behind.
+
+| Metric | Meaning |
+|--------|---------|
+| `generated_bytes` | TypeScript the definition contributed: its types, its document AST, and any hooks |
+| `ast_bytes` | The `DocumentNode` export alone, out of `generated_bytes` |
+| `spread_by` | Definitions that spread this fragment. `null` for an operation |
+
+The split matters because the two halves have different fates. Types are erased
+when the app is built; the document AST is data and ships. Sorting by `ast`
+therefore ranks by what the bundle pays for, which is a different order from
+total size — and with `generate_ast_for_fragments` on, fragments are part of
+that bill rather than types alone.
+
+### Fragments keep their own weight
+
+A fragment is generated once and imported by everything that spreads it, and its
+bytes stay charged to the fragment rather than being added to each spreading
+operation. Attributing them outwards would count one fragment many times and
+break the property that makes the numbers worth reading: per-definition bytes
+plus each file's shared preamble come to the bytes on disk. `spread_by` carries
+the leverage instead — an 8 KB fragment spread by twelve definitions is a
+different proposition from the same 8 KB spread by one.
+
+### Reading the totals
+
+The header counts the whole scope, and `shared_bytes` per project is output no
+definition accounts for: the per-file preamble, the helper types and the import
+lines. Those describe whole files, so they are reported only for an unfiltered
+run — under `--kind` the definitions in a file are no longer all in scope and
+the sum would no longer be its size.
+
+Fragments shared between projects are counted in each, since codegen emits a
+copy into each project that resolves them.
+
+A file the generator rejected is called out and contributes nothing, so its
+project would otherwise read as one with less output than it has.

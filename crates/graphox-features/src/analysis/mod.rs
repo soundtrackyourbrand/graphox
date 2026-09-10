@@ -6,7 +6,9 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod operations;
 pub mod repeated_selections;
+pub mod spreads;
 pub mod usage;
 
 /// A file to analyse, as its GraphQL source with host-language code masked out.

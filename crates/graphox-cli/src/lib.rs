@@ -2,6 +2,7 @@ pub mod commands;
 pub mod reporters;
 
 pub use commands::{
-    AnalyzeParams, CodegenParams, PathScope, UsageParams, run_analyze, run_benchmark, run_check,
-    run_codegen, run_usage,
+    AnalyzeParams, CodegenParams, CodegenWeightParams, OperationsParams, PathScope, UsageParams,
+    run_analyze, run_benchmark, run_check, run_codegen, run_codegen_weight, run_operations,
+    run_usage,
 };
