@@ -1,4 +1,4 @@
-use ahash::{AHashMap as HashMap, AHashSet as HashSet};
+use ahash::AHashMap as HashMap;
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
@@ -230,75 +230,10 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
 
     let shared_caches = codegen::SchemaAnalysisCaches::new();
 
-    // Cheap, synchronous prep: the distinct schema sources, and per source the
-    // `schema_types` whose files that source covers (used for type-import mapping and
-    // the schema-import fallback in the project loop).
+    let setup = super::setup::CodegenSetup::resolve(&cfg);
+    let workspace_metadata = &setup.workspace;
+    let validated_schemas = &setup.schemas;
     let schema_types = cfg.schema_types();
-    let mut unique_sources = HashSet::new();
-    for project in cfg.projects() {
-        unique_sources.insert(project.schema().as_key());
-    }
-    let source_to_matches: HashMap<String, Vec<_>> = unique_sources
-        .iter()
-        .map(|key| {
-            let schema_files: HashSet<_> = key.split(',').map(String::from).collect();
-            let mut matches: Vec<_> = schema_types
-                .iter()
-                .filter(|st| {
-                    let st_files = st.schema().files();
-                    st_files.iter().all(|f| schema_files.contains(f))
-                })
-                .collect();
-            matches.sort_by_key(|st| std::cmp::Reverse(st.schema().files().len()));
-            (key.clone(), matches)
-        })
-        .collect();
-
-    // The workspace scan, project-schema validation, and schema_types type-import
-    // precompute are mutually independent and each non-trivial. Run them concurrently,
-    // and — crucially — validate each DISTINCT schema once rather than per project
-    // (many projects share the same large schema).
-    let (workspace_metadata, (validated_schemas, workspace_type_imports)) = rayon::join(
-        || {
-            Engine::scan_workspace(
-                &cfg,
-                tower_lsp_server::ls_types::PositionEncodingKind::UTF8,
-                None,
-            )
-        },
-        || {
-            rayon::join(
-                || super::build_validated_schemas(&cfg),
-                || -> std::collections::HashMap<String, HashMap<String, String>> {
-                    unique_sources
-                        .par_iter()
-                        .map(|key| {
-                            let mut project_type_imports = HashMap::default();
-                            if let Some(matches) = source_to_matches.get(key) {
-                                for st in matches.iter().rev() {
-                                    if let Some(import_path) = st.import()
-                                        && let Ok(st_schema) = schema::load_schema_with_cache(
-                                            cfg.base_dir(),
-                                            st.schema(),
-                                            cfg.enable_schema_cache(),
-                                        )
-                                    {
-                                        for type_name in st_schema.types.keys() {
-                                            project_type_imports.insert(
-                                                type_name.to_string(),
-                                                import_path.to_string(),
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            (key.clone(), project_type_imports)
-                        })
-                        .collect()
-                },
-            )
-        },
-    );
     let global_metadata = &workspace_metadata.fragments;
 
     // Process projects in parallel
@@ -336,37 +271,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
             }
 
             let project_output_dir = project.output_dir().map(Path::new);
-            let type_imports = workspace_type_imports
-                .get(&project.schema().as_key())
-                .unwrap();
-            let mut schema_import = project.import().map(String::from);
-
-            if schema_import.is_none()
-                && let Some(matches) = source_to_matches.get(&project.schema().as_key())
-                && let Some(st) = matches.first()
-            {
-                let project_abs_out_dir = project_output_dir.map(|d| cfg.base_dir().join(d));
-                let mut final_import_path = st.import().map(String::from);
-                if let Some(import_path) = &final_import_path
-                    && (import_path == "." || import_path == "./")
-                    && let Some(abs_out_dir) = &project_abs_out_dir
-                {
-                    let abs_st_output = cfg.base_dir().join(st.output());
-                    if abs_st_output.parent() == Some(abs_out_dir) {
-                        let rel = pathdiff::diff_paths(&abs_st_output, abs_out_dir)
-                            .unwrap_or_else(|| PathBuf::from(abs_st_output.file_name().unwrap()));
-                        let mut s = utils::to_posix_path(&rel);
-                        if s.ends_with(".ts") {
-                            s.truncate(s.len() - 3);
-                        }
-                        if !s.starts_with('.') {
-                            s = format!("./{}", s);
-                        }
-                        final_import_path = Some(s);
-                    }
-                }
-                schema_import = final_import_path;
-            }
+            let type_imports = setup.type_imports_for(&project.schema().as_key());
+            let schema_import = setup.schema_import(&cfg, project);
 
             // Reuse the schema validated once up front (shared across projects using the
             // same schema) instead of re-loading + re-validating it per project.
@@ -1052,49 +958,17 @@ fn generate_project_files_sync(
         .filter_map(|path| params.workspace_documents.get(path).map(|doc| (path, doc)))
         .filter(|(_, doc)| !doc.get_graphql_trees().is_empty())
         .map(|(path, doc)| {
-            let patterns = params.include.patterns();
-            let include_prefix_path = patterns
-                .iter()
-                .map(|p| utils::get_glob_root(p))
-                .find(|root| {
-                    let abs_root = params.base_dir.join(root);
-                    let abs_root = std::fs::canonicalize(&abs_root).unwrap_or(abs_root);
-                    utils::path_starts_with(path, &abs_root)
-                })
-                .unwrap_or_default();
-
-            let out_path_raw = utils::get_output_path(
-                path,
+            let super::setup::FilePaths {
+                include_prefix: include_prefix_path,
+                out_path: abs_out_path,
+                masking_import_path,
+            } = super::setup::file_paths(
                 params.base_dir,
+                params.include,
                 params.output_dir,
-                Some(&include_prefix_path),
+                params.emit_extensions,
+                path,
             );
-
-            let abs_out_path = if out_path_raw.is_absolute() {
-                out_path_raw
-            } else {
-                params.base_dir.join(out_path_raw)
-            };
-
-            let masking_import_path = if let Some(out_dir) = params.output_dir {
-                let abs_out_dir = params.base_dir.join(out_dir);
-                let abs_file_out_dir = abs_out_path.parent().unwrap();
-
-                let rel_to_masking = pathdiff::diff_paths(&abs_out_dir, abs_file_out_dir)
-                    .unwrap_or_else(|| PathBuf::from("."));
-
-                let full_masking_path = rel_to_masking.join("fragment-masking");
-                let mut path_str = utils::to_posix_path(&full_masking_path);
-                if !path_str.starts_with('.') && !path_str.starts_with('/') && !full_masking_path.is_absolute() {
-                    path_str.insert_str(0, "./");
-                }
-                path_str.push_str(params.emit_extensions.as_str());
-                path_str
-            } else {
-                let mut path_str = "./fragment-masking".to_string();
-                path_str.push_str(params.emit_extensions.as_str());
-                path_str
-            };
 
             let ctx = codegen::CodegenContext::new(
                 &valid_schema,

@@ -2,18 +2,24 @@ pub mod analyze;
 pub mod benchmark;
 pub mod check;
 pub mod codegen;
+pub mod codegen_weight;
+pub mod operations;
+pub(crate) mod setup;
 pub mod usage;
 
 pub use analyze::{AnalyzeParams, run_analyze};
 pub use benchmark::run_benchmark;
 pub use check::run_check;
 pub use codegen::{CodegenParams, run_codegen};
+pub use codegen_weight::{CodegenWeightParams, run_codegen_weight};
+pub use operations::{OperationsParams, run_operations};
 pub use usage::{UsageParams, run_usage};
 
 use ahash::{AHashMap, AHashSet};
+use colored::*;
 use graphox_core::Config;
 use graphox_core::config::SchemaSource;
-use graphox_core::engine::WorkspaceMetadata;
+use graphox_core::engine::{Engine, ProjectContext, WorkspaceMetadata};
 use graphox_core::schema;
 use rayon::prelude::*;
 use std::path::PathBuf;
@@ -110,6 +116,154 @@ pub(crate) fn mandated_fields_by_project(config: &Config) -> AHashMap<usize, AHa
             // Never written by hand, so it never describes a selection.
             fields.insert("__typename".to_string());
             (idx, fields)
+        })
+        .collect()
+}
+
+/// `count noun`, pluralised.
+pub(crate) fn plural(count: usize, noun: &str) -> String {
+    if count == 1 {
+        format!("{count} {noun}")
+    } else {
+        format!("{count} {noun}s")
+    }
+}
+
+/// The first `limit` items, or all of them when it is zero.
+pub(crate) fn take<T>(items: Vec<T>, limit: usize) -> Vec<T> {
+    if limit == 0 {
+        items
+    } else {
+        items.into_iter().take(limit).collect()
+    }
+}
+
+pub(crate) fn escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    for ch in value.chars() {
+        match ch {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+pub(crate) fn json_strings(values: impl IntoIterator<Item = String>) -> String {
+    let items: Vec<String> = values
+        .into_iter()
+        .map(|v| format!("\"{}\"", escape(&v)))
+        .collect();
+    format!("[{}]", items.join(","))
+}
+
+/// Which projects an `--app` scope admits, indexed by project.
+///
+/// Matching is against the project's include path, so `--app apps/business`
+/// reaches every project under that app. A scope that admits nothing is a
+/// mistyped pattern rather than an empty result, so it ends the run.
+pub(crate) fn projects_in_scope(config: &Config, app: Option<&str>) -> Vec<bool> {
+    let in_scope: Vec<bool> = config
+        .projects()
+        .iter()
+        .map(|project| match app {
+            Some(needle) => project.include().as_key().contains(needle),
+            None => true,
+        })
+        .collect();
+
+    if let Some(needle) = app
+        && !in_scope.iter().any(|scoped| *scoped)
+    {
+        eprintln!(
+            "{}: no project matched --app '{}'. Known projects:",
+            "Error".red(),
+            needle
+        );
+        for project in config.projects() {
+            eprintln!("  {}", project.include().as_key());
+        }
+        graphox_core::utils::flush_stdio();
+        std::process::exit(1);
+    }
+
+    in_scope
+}
+
+/// A project, its files, and the fragments it can see.
+pub(crate) struct ResolvedProject {
+    pub project_idx: usize,
+    pub schema_key: String,
+    /// The project's scanned files, as keys into `WorkspaceMetadata::documents`.
+    pub files: Vec<PathBuf>,
+    pub context: ProjectContext,
+}
+
+/// Resolve every in-scope project's fragments, as codegen does.
+///
+/// `selections` and `usage` read masked source grouped by schema, which is all
+/// it takes to see what a definition selects in its own body. Following a spread
+/// is a different question: which fragment a name resolves to depends on the
+/// project doing the resolving, since a fragment reaches another project only
+/// when it is `@public`, and two projects with overlapping `include` patterns
+/// resolve the same name to their own copy. An analysis that expands spreads —
+/// or that measures generated output, which is emitted per project — therefore
+/// runs per project rather than per schema.
+///
+/// A project whose schema did not load is skipped with a warning, matching how
+/// the other tools treat one.
+pub(crate) fn resolve_projects(
+    config: &Config,
+    workspace: &WorkspaceMetadata,
+    schemas: &AHashMap<String, Result<ValidSchema, String>>,
+    in_scope: &[bool],
+) -> Vec<ResolvedProject> {
+    config
+        .projects()
+        .par_iter()
+        .enumerate()
+        .filter(|(idx, _)| in_scope[*idx])
+        .filter_map(|(project_idx, project)| {
+            let schema_key = project.schema().as_key();
+            let Some(Ok(schema)) = schemas.get(&schema_key) else {
+                eprintln!(
+                    "{}: skipping project {} — schema {} did not load",
+                    "Warning".yellow(),
+                    project.include().as_key().blue(),
+                    schema_key
+                );
+                return None;
+            };
+
+            let files = workspace.projects[project_idx].files.clone();
+            match Engine::resolve_project_context(
+                config,
+                project_idx,
+                schema,
+                &workspace.fragments,
+                &files,
+            ) {
+                Ok(context) => Some(ResolvedProject {
+                    project_idx,
+                    schema_key,
+                    files,
+                    context,
+                }),
+                Err(e) => {
+                    eprintln!(
+                        "{}: skipping project {} — {}",
+                        "Warning".yellow(),
+                        project.include().as_key().blue(),
+                        e
+                    );
+                    None
+                }
+            }
         })
         .collect()
 }

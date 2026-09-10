@@ -166,6 +166,8 @@ graphox codegen --watch   # Watches and runs codegen of file changes
 graphox analyze selections                     # Selections that recur
 graphox analyze usage --type Account           # Field usage, by consumer count
 graphox analyze usage --app apps/business      # Scoped to one app
+graphox analyze operations --sort lists        # Request cost, most-multiplying first
+graphox analyze codegen --sort ast             # Generated weight, per definition
 
 # Run performance benchmarks
 graphox benchmark
@@ -186,7 +188,16 @@ graphox benchmark
     - `--type <Type>` - List that type's fields by consumer count
     - `--field <field>` - List what selects that field
     - `--unused` - Declared fields nothing selects
-  - Both take `--limit <n>` (`0` for all, human output only) and `--json`
+  - `operations` - What each operation costs the server to answer
+    - `--app <substring>` - Scope to projects whose include path matches
+    - `--kind <query|mutation|subscription>` - Report one operation type
+    - `--name <Operation>` - Explain one operation instead of ranking all
+    - `--sort <depth|fields|lists>` - Order the ranking (default `depth`)
+  - `codegen` - What the generated TypeScript weighs, per definition
+    - `--app <substring>` - Scope to projects whose include path matches
+    - `--kind <operation|fragment>` - Report one kind of definition
+    - `--sort <bytes|ast>` - Order by total size or by what reaches the bundle
+  - All four take `--limit <n>` (`0` for all, human output only) and `--json`
 - `lsp` - Starts the Language Server Protocol server
 
 ---

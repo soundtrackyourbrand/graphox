@@ -621,6 +621,18 @@ pub struct OperationGenerated {
     pub hook_names: Vec<String>,
     pub source_text: String,
     pub codegen_path: PathBuf,
+    /// TypeScript this operation contributed to its output file: its result and
+    /// variables types, its document AST, and any hooks.
+    ///
+    /// Measured as the generator appends, so the per-definition counts of a file
+    /// plus that file's shared preamble come to the length of the whole output.
+    /// Anything less exact could not be summed into a per-project total.
+    pub generated_bytes: usize,
+    /// The `DocumentNode` export alone, out of `generated_bytes`.
+    ///
+    /// Types are erased when the app is built and the AST is not, so this is the
+    /// part a bundle pays for at runtime.
+    pub ast_bytes: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -630,6 +642,13 @@ pub struct FragmentGenerated {
     pub source_text: String,
     pub document_name: String,
     pub codegen_path: PathBuf,
+    /// TypeScript this fragment contributed to its output file. Counted the same
+    /// way as [`OperationGenerated::generated_bytes`].
+    pub generated_bytes: usize,
+    /// The `DocumentNode` export alone, out of `generated_bytes`. Zero unless
+    /// `generate_ast_for_fragments` is on, which is what decides whether a
+    /// fragment reaches the bundle as data or only as an erased type.
+    pub ast_bytes: usize,
 }
 
 #[derive(Debug, Default, Clone)]
