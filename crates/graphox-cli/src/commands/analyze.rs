@@ -4,7 +4,10 @@ use graphox_core::engine::Engine;
 use graphox_features::analysis::repeated_selections::{self, Analysis, OverlapKind, Scope};
 use graphox_features::analysis::{DefinitionKind, DocumentSource};
 
-use super::{build_validated_schemas, documents_by_schema, mandated_fields_by_project};
+use super::{
+    build_validated_schemas, documents_by_schema, escape, json_strings, mandated_fields_by_project,
+    plural, take,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Kind {
@@ -100,22 +103,6 @@ fn wanted(params: &AnalyzeParams, kind: Kind, type_name: &str) -> bool {
         return false;
     }
     true
-}
-
-fn plural(count: usize, noun: &str) -> String {
-    if count == 1 {
-        format!("{count} {noun}")
-    } else {
-        format!("{count} {noun}s")
-    }
-}
-
-fn take<T>(items: Vec<T>, limit: usize) -> Vec<T> {
-    if limit == 0 {
-        items
-    } else {
-        items.into_iter().take(limit).collect()
-    }
 }
 
 fn print_human(config: &Config, analyses: &[(String, Analysis)], params: &AnalyzeParams) {
@@ -278,30 +265,6 @@ fn print_human(config: &Config, analyses: &[(String, Analysis)], params: &Analyz
             );
         }
     }
-}
-
-fn escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-fn json_strings(values: impl IntoIterator<Item = String>) -> String {
-    let items: Vec<String> = values
-        .into_iter()
-        .map(|v| format!("\"{}\"", escape(&v)))
-        .collect();
-    format!("[{}]", items.join(","))
 }
 
 fn print_json(config: &Config, analyses: &[(String, Analysis)], params: &AnalyzeParams) {

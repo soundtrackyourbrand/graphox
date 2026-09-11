@@ -1,6 +1,7 @@
 use clap::{Parser, Subcommand};
 use graphox_cli::{
-    AnalyzeParams, UsageParams, run_analyze, run_benchmark, run_check, run_codegen, run_usage,
+    AnalyzeParams, CodegenWeightParams, OperationsParams, UsageParams, run_analyze, run_benchmark,
+    run_check, run_codegen, run_codegen_weight, run_operations, run_usage,
 };
 use graphox_core::Config;
 use graphox_lsp::run_lsp;
@@ -104,6 +105,45 @@ enum AnalyzeTool {
         unused: bool,
         /// Rows to print, or 0 for all. Does not apply to --json
         #[arg(long, default_value_t = 30)]
+        limit: usize,
+        /// Emit results as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Report what each operation asks the server for
+    Operations {
+        /// Restrict to projects whose include path contains this
+        #[arg(long, visible_alias = "project")]
+        app: Option<String>,
+        /// Report only one kind: query, mutation, subscription
+        #[arg(long)]
+        kind: Option<String>,
+        /// Explain this operation instead of ranking all of them
+        #[arg(long)]
+        name: Option<String>,
+        /// Order by: depth, fields, lists
+        #[arg(long, default_value = "depth")]
+        sort: String,
+        /// Rows to print, or 0 for all. Does not apply to --json
+        #[arg(long, default_value_t = 20)]
+        limit: usize,
+        /// Emit results as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Report what the generated TypeScript weighs, per definition
+    Codegen {
+        /// Restrict to projects whose include path contains this
+        #[arg(long, visible_alias = "project")]
+        app: Option<String>,
+        /// Report only one kind: operation, fragment
+        #[arg(long)]
+        kind: Option<String>,
+        /// Order by: bytes, ast
+        #[arg(long, default_value = "bytes")]
+        sort: String,
+        /// Rows to print, or 0 for all. Does not apply to --json
+        #[arg(long, default_value_t = 20)]
         limit: usize,
         /// Emit results as JSON
         #[arg(long)]
@@ -214,6 +254,82 @@ async fn main() {
                         type_name,
                         field,
                         unused,
+                        limit,
+                        json,
+                    },
+                )
+                .await;
+            }
+            AnalyzeTool::Operations {
+                app,
+                kind,
+                name,
+                sort,
+                limit,
+                json,
+            } => {
+                let kind = match kind
+                    .as_deref()
+                    .map(graphox_features::analysis::operations::OperationKind::parse)
+                {
+                    Some(None) => {
+                        eprintln!(
+                            "Error: Unknown --kind value. Expected query, mutation or subscription."
+                        );
+                        graphox_core::utils::flush_stdio();
+                        std::process::exit(1);
+                    }
+                    parsed => parsed.flatten(),
+                };
+                let Some(sort) = graphox_cli::commands::operations::Sort::parse(&sort) else {
+                    eprintln!(
+                        "Error: Unknown --sort value '{sort}'. Expected depth, fields or lists."
+                    );
+                    graphox_core::utils::flush_stdio();
+                    std::process::exit(1);
+                };
+                run_operations(
+                    config,
+                    OperationsParams {
+                        app,
+                        kind,
+                        name,
+                        sort,
+                        limit,
+                        json,
+                    },
+                )
+                .await;
+            }
+            AnalyzeTool::Codegen {
+                app,
+                kind,
+                sort,
+                limit,
+                json,
+            } => {
+                let kind = match kind
+                    .as_deref()
+                    .map(graphox_cli::commands::codegen_weight::Kind::parse)
+                {
+                    Some(None) => {
+                        eprintln!("Error: Unknown --kind value. Expected operation or fragment.");
+                        graphox_core::utils::flush_stdio();
+                        std::process::exit(1);
+                    }
+                    parsed => parsed.flatten(),
+                };
+                let Some(sort) = graphox_cli::commands::codegen_weight::Sort::parse(&sort) else {
+                    eprintln!("Error: Unknown --sort value '{sort}'. Expected bytes or ast.");
+                    graphox_core::utils::flush_stdio();
+                    std::process::exit(1);
+                };
+                run_codegen_weight(
+                    config,
+                    CodegenWeightParams {
+                        app,
+                        kind,
+                        sort,
                         limit,
                         json,
                     },

@@ -1,6 +1,7 @@
 mod clean_test;
 mod cli;
 mod codegen_watch;
+mod codegen_weight_cli;
 mod cross_project_docs;
 mod cross_project_features;
 mod duplicate_fragments_codegen;
@@ -15,6 +16,7 @@ mod long_running;
 mod lsp_multi_schema;
 mod lsp_updates;
 mod multibyte;
+mod operations_cli;
 mod orphan_prune_test;
 mod repeated_selections_cli;
 mod suffix_consistency;
