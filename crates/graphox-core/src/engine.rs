@@ -398,6 +398,13 @@ impl Engine {
                     return None;
                 }
 
+                // Most files the walk finds are host files without GraphQL. Reject
+                // them before resolving the canonical path below, which costs a
+                // `realpath` each. See `skip_without_graphql`.
+                if skip_without_graphql(&full_path, &content) {
+                    return None;
+                }
+
                 let abs_path = if full_path.is_absolute() {
                     full_path.clone()
                 } else {
@@ -922,6 +929,9 @@ impl Engine {
         position_encoding: ls_types::PositionEncodingKind,
     ) -> Option<DocumentState> {
         let content = std::fs::read_to_string(path).ok()?;
+        if skip_without_graphql(path, &content) {
+            return None;
+        }
         let abs_path = crate::utils::canonicalize_cached(path);
         let uri = crate::utils::path_to_uri(&abs_path)?;
         let uri = crate::utils::normalize_uri(uri);
@@ -941,6 +951,23 @@ impl Engine {
         Some(doc)
     }
 }
+/// Whether a file can be rejected as holding no GraphQL from its own name,
+/// before its canonical path is resolved.
+///
+/// The language comes from the file's extension. Resolving the path cannot
+/// change a regular file's name, as the walk read it from the directory, so its
+/// own extension is the one the canonical path would have. A symlink's target
+/// can have another extension, so a symlink is left for the full check that
+/// follows canonicalization.
+fn skip_without_graphql(path: &Path, content: &str) -> bool {
+    let Some(uri) = crate::utils::path_to_uri(path) else {
+        return false;
+    };
+    DocumentLanguage::from_uri(&uri).is_host_language()
+        && !crate::utils::may_contain_graphql(content)
+        && std::fs::symlink_metadata(path).is_ok_and(|m| !m.file_type().is_symlink())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1036,5 +1063,73 @@ mod tests {
             "resolve_fragments should not fail on duplicate operations. Got: {:?}",
             result.err()
         );
+    }
+}
+
+#[cfg(test)]
+mod scan_filter_tests {
+    use super::*;
+    use crate::config::{GlobPattern, ProjectConfig, SchemaSource};
+
+    fn scan(base: &Path) -> WorkspaceMetadata {
+        let config = Config::new_test(
+            base.to_path_buf(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("src".to_string())),
+            ],
+        );
+        Engine::scan_workspace(&config, ls_types::PositionEncodingKind::UTF16, None)
+    }
+
+    fn operation_names(workspace: &WorkspaceMetadata) -> Vec<String> {
+        let mut names: Vec<String> = workspace
+            .operations
+            .iter()
+            .filter_map(|op| op.name.as_deref().map(str::to_string))
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn host_files_are_filtered_by_content_before_resolution() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::write(base.join("schema.graphql"), "type Query { me: Int }").unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap();
+        std::fs::write(base.join("src/plain.ts"), "export const one = 1;\n").unwrap();
+        std::fs::write(
+            base.join("src/query.ts"),
+            "import { gql } from '@apollo/client';\nexport const Q = gql`query FromHost { me }`;\n",
+        )
+        .unwrap();
+        std::fs::write(base.join("src/query.graphql"), "query FromGraphql { me }").unwrap();
+
+        let workspace = scan(&base);
+        assert_eq!(operation_names(&workspace), vec!["FromGraphql", "FromHost"]);
+        assert!(
+            !workspace.documents.keys().any(|p| p.ends_with("plain.ts")),
+            "a host file without GraphQL is not kept"
+        );
+    }
+
+    /// A symlink's own name can carry another extension than its target, and
+    /// the target's decides how the file is read.
+    #[cfg(unix)]
+    #[test]
+    fn a_host_named_symlink_to_graphql_is_read_as_graphql() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        std::fs::write(base.join("schema.graphql"), "type Query { me: Int }").unwrap();
+        std::fs::create_dir_all(base.join("defs")).unwrap();
+        std::fs::create_dir_all(base.join("src")).unwrap();
+        // No `gql` or `graphql` marker, which a .ts name would need.
+        std::fs::write(base.join("defs/linked.graphql"), "query Linked { me }").unwrap();
+        std::os::unix::fs::symlink(base.join("defs/linked.graphql"), base.join("src/linked.ts"))
+            .unwrap();
+
+        assert_eq!(operation_names(&scan(&base)), vec!["Linked"]);
     }
 }
