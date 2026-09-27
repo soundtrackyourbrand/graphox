@@ -120,6 +120,9 @@ pub struct Backend {
     /// Files codegen found without GraphQL, so later runs skip reading them
     /// while they are unchanged. See [`super::codegen_runner::NoGraphqlFiles`].
     pub codegen_no_graphql_files: super::codegen_runner::NoGraphqlFiles,
+    /// Codegen's validation of each in-memory schema, so it validates each
+    /// version once. See [`super::codegen_runner::CodegenSchemas`].
+    pub codegen_validated_schemas: super::codegen_runner::CodegenValidatedSchemas,
     /// Global cache for all fragments in the workspace
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
     /// Reuse cache for the no-SLO fragment list built during validation, keyed by
@@ -244,6 +247,8 @@ impl Backend {
             let project_files_version = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let codegen_no_graphql_files =
                 Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default()));
+            let codegen_validated_schemas =
+                Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default()));
 
             Self {
                 client,
@@ -275,6 +280,7 @@ impl Backend {
                 codegen_metadata_cache,
                 project_files_version,
                 codegen_no_graphql_files,
+                codegen_validated_schemas,
                 fragment_metadata_cache,
                 validation_fragment_cache,
                 configured_document_uris_cache,
@@ -299,6 +305,14 @@ impl Backend {
             caps.negotiated_encoding()
         } else {
             PositionEncodingKind::UTF16
+        }
+    }
+
+    /// The in-memory schemas codegen generates against.
+    pub fn codegen_schemas(&self) -> super::codegen_runner::CodegenSchemas {
+        super::codegen_runner::CodegenSchemas {
+            raw: self.schemas.clone(),
+            validated: self.codegen_validated_schemas.clone(),
         }
     }
 
@@ -705,6 +719,7 @@ impl Backend {
             *cache = None;
         }
         self.codegen_no_graphql_files.clear();
+        self.codegen_validated_schemas.clear();
 
         // Clear globset cache in config
         graphox_core::config::clear_globset_cache();
@@ -893,6 +908,7 @@ impl Backend {
                 self.codegen_metadata_cache.clone(),
             )),
             Some(self.codegen_no_graphql_files.clone()),
+            Some(self.codegen_schemas()),
         )
         .await;
     }
@@ -912,6 +928,7 @@ impl Backend {
             *cache = None;
         }
         self.codegen_no_graphql_files.clear();
+        self.codegen_validated_schemas.clear();
 
         // Clear globset cache in config
         graphox_core::config::clear_globset_cache();

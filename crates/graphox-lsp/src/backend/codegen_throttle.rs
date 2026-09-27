@@ -47,6 +47,7 @@ impl CodegenThrottle {
                     metadata_versions,
                     codegen_metadata_cache,
                     no_graphql_files,
+                    schemas,
                 ) = {
                     if let Some(backend) = backend_weak.upgrade() {
                         let cfg = backend.config.read().unwrap();
@@ -68,6 +69,7 @@ impl CodegenThrottle {
                             ),
                             backend.codegen_metadata_cache.clone(),
                             backend.codegen_no_graphql_files.clone(),
+                            backend.codegen_schemas(),
                         )
                     } else {
                         break;
@@ -142,6 +144,7 @@ impl CodegenThrottle {
                     position_encoding,
                     Some((version, codegen_metadata_cache)),
                     Some(no_graphql_files),
+                    Some(schemas),
                 )
                 .await;
 

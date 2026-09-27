@@ -67,6 +67,85 @@ impl FileStamp {
 /// so the answer holds without relying on file watchers.
 pub type NoGraphqlFiles = Arc<dashmap::DashMap<PathBuf, FileStamp, ahash::RandomState>>;
 
+/// Why a project's schema could not be used for codegen.
+#[derive(Clone, Debug)]
+pub enum SchemaUnavailable {
+    Load(String),
+    Invalid(String),
+}
+
+/// The server's in-memory schemas, and codegen's validation of each. `raw` is
+/// the server's own map, which a schema reload always replaces, even when the
+/// new schema fails validation; the server's map of validated schemas keeps
+/// the last valid one in that case, so codegen does not use it. Each result
+/// is kept with the schema object it was computed for and reused while that
+/// object is still the current one.
+#[derive(Clone)]
+pub struct CodegenSchemas {
+    pub raw: Arc<dashmap::DashMap<String, Arc<apollo_compiler::Schema>, ahash::RandomState>>,
+    pub validated: CodegenValidatedSchemas,
+}
+
+pub type CodegenValidatedSchemas = Arc<
+    dashmap::DashMap<
+        String,
+        (
+            Arc<apollo_compiler::Schema>,
+            Result<
+                Arc<apollo_compiler::validation::Valid<apollo_compiler::Schema>>,
+                SchemaUnavailable,
+            >,
+        ),
+        ahash::RandomState,
+    >,
+>;
+
+/// The schema for `source`, from memory when the server holds it, otherwise
+/// read from disk as before.
+fn raw_schema(
+    config: &Config,
+    source: &graphox_core::config::SchemaSource,
+    in_memory: Option<&CodegenSchemas>,
+) -> Result<Arc<apollo_compiler::Schema>, SchemaUnavailable> {
+    if let Some(schema) = in_memory.and_then(|m| m.raw.get(&source.as_key()).map(|s| s.clone())) {
+        return Ok(schema);
+    }
+    graphox_core::schema::load_schema(config.base_dir(), source)
+        .map(Arc::new)
+        .map_err(|e| SchemaUnavailable::Load(e.to_string()))
+}
+
+/// The validated schema for `source`, validating each version of it once.
+pub(crate) fn valid_schema(
+    config: &Config,
+    source: &graphox_core::config::SchemaSource,
+    in_memory: Option<&CodegenSchemas>,
+) -> Result<Arc<apollo_compiler::validation::Valid<apollo_compiler::Schema>>, SchemaUnavailable> {
+    let raw = raw_schema(config, source, in_memory)?;
+    let key = source.as_key();
+    if let Some(in_memory) = in_memory
+        && let Some(entry) = in_memory.validated.get(&key)
+        && Arc::ptr_eq(&entry.0, &raw)
+    {
+        return entry.1.clone();
+    }
+    let result = <apollo_compiler::Schema as Clone>::clone(&raw)
+        .validate()
+        .map(Arc::new)
+        .map_err(|e| SchemaUnavailable::Invalid(e.to_string()));
+    // Only a schema the server holds can be recognised again next run; one read
+    // from disk is a fresh object each time.
+    if let Some(in_memory) = in_memory
+        && in_memory
+            .raw
+            .get(&key)
+            .is_some_and(|current| Arc::ptr_eq(&current, &raw))
+    {
+        in_memory.validated.insert(key, (raw, result.clone()));
+    }
+    result
+}
+
 /// Parses every project file that is not already an in-memory document, so the
 /// generation pass has a `DocumentState` for each. Used on a metadata cache hit,
 /// where the (cached) metadata was built without producing a fresh document cache.
@@ -277,6 +356,7 @@ pub async fn run_codegen(
     position_encoding: tower_lsp_server::ls_types::PositionEncodingKind,
     metadata_cache: Option<(MetadataVersion, CodegenMetadataCache)>,
     no_graphql: Option<NoGraphqlFiles>,
+    schemas: Option<CodegenSchemas>,
 ) {
     // Create progress reporter
     let progress = super::progress::ProgressReporter::new(
@@ -416,8 +496,7 @@ pub async fn run_codegen(
             // Build type_imports
             for st in matches.iter().rev() {
                 if let Some(import_path) = st.import()
-                    && let Ok(st_schema) =
-                        graphox_core::schema::load_schema(config.base_dir(), st.schema())
+                    && let Ok(st_schema) = raw_schema(&config, st.schema(), schemas.as_ref())
                 {
                     for type_name in st_schema.types.keys() {
                         type_imports.insert(type_name.to_string(), import_path.to_string());
@@ -428,19 +507,15 @@ pub async fn run_codegen(
             matches.first().and_then(|st| st.import().map(String::from))
         };
 
-        let schema = match graphox_core::schema::load_schema(config.base_dir(), project.schema()) {
-            Ok(s) => s,
-            Err(e) => {
+        let valid_schema = match valid_schema(&config, project.schema(), schemas.as_ref()) {
+            Ok(v) => v,
+            Err(SchemaUnavailable::Load(e)) => {
                 client
                     .log_message(MessageType::ERROR, format!("Failed to load schema: {}", e))
                     .await;
                 continue;
             }
-        };
-
-        let valid_schema = match schema.validate() {
-            Ok(v) => v,
-            Err(e) => {
+            Err(SchemaUnavailable::Invalid(e)) => {
                 client
                     .log_message(
                         MessageType::ERROR,
@@ -496,7 +571,6 @@ pub async fn run_codegen(
         let run_cache_for_project = run_cache.clone();
         let project_files_for_project = project_files.clone();
         let project_for_codegen = (*project).clone();
-        let valid_schema = Arc::new(valid_schema);
         let project_context = Arc::new(project_context);
         let schema_import = schema_import.clone();
         let type_imports = type_imports.clone();
@@ -1058,5 +1132,89 @@ mod tests {
         assert!(lookup.load(&path).0.is_some());
         assert!(!lookup.no_graphql.contains_key(&path));
         assert!(lookup.load(&path).0.is_some());
+    }
+
+    mod schemas {
+        use super::super::*;
+        use graphox_core::config::{GlobPattern, ProjectConfig, SchemaSource};
+
+        fn setup(schema: &str) -> (tempfile::TempDir, Config, SchemaSource, CodegenSchemas) {
+            let dir = tempfile::tempdir().unwrap();
+            let base = dir.path().canonicalize().unwrap();
+            std::fs::write(base.join("schema.graphql"), schema).unwrap();
+            let source = SchemaSource::Single("schema.graphql".to_string());
+            let config = Config::new_test(
+                base,
+                vec![
+                    ProjectConfig::default()
+                        .with_schema(source.clone())
+                        .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+                ],
+            );
+            let schemas = CodegenSchemas {
+                raw: Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default())),
+                validated: Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default())),
+            };
+            (dir, config, source, schemas)
+        }
+
+        fn hold(schemas: &CodegenSchemas, source: &SchemaSource, sdl: &str) {
+            let schema =
+                apollo_compiler::Schema::parse(sdl, "schema.graphql").unwrap_or_else(|e| e.partial);
+            schemas.raw.insert(source.as_key(), Arc::new(schema));
+        }
+
+        #[test]
+        fn a_held_schema_is_validated_once() {
+            let (_dir, config, source, schemas) = setup("type Query { a: Int }");
+            hold(&schemas, &source, "type Query { a: Int }");
+
+            let first = valid_schema(&config, &source, Some(&schemas)).unwrap();
+            let second = valid_schema(&config, &source, Some(&schemas)).unwrap();
+            assert!(Arc::ptr_eq(&first, &second));
+        }
+
+        #[test]
+        fn a_reloaded_schema_is_validated_again() {
+            let (_dir, config, source, schemas) = setup("type Query { a: Int }");
+            hold(&schemas, &source, "type Query { a: Int }");
+            valid_schema(&config, &source, Some(&schemas)).unwrap();
+
+            hold(&schemas, &source, "type Query { a: Int b: String }");
+            let reloaded = valid_schema(&config, &source, Some(&schemas)).unwrap();
+            assert!(
+                reloaded.types["Query"]
+                    .as_object()
+                    .unwrap()
+                    .fields
+                    .contains_key("b")
+            );
+        }
+
+        #[test]
+        fn an_invalid_reload_is_reported_not_replaced_by_the_last_valid_schema() {
+            let (_dir, config, source, schemas) = setup("type Query { a: Int }");
+            hold(&schemas, &source, "type Query { a: Int }");
+            valid_schema(&config, &source, Some(&schemas)).unwrap();
+
+            hold(&schemas, &source, "type Query { a: Missing }");
+            assert!(matches!(
+                valid_schema(&config, &source, Some(&schemas)),
+                Err(SchemaUnavailable::Invalid(_))
+            ));
+        }
+
+        #[test]
+        fn a_schema_the_server_does_not_hold_is_read_from_disk() {
+            let (_dir, config, source, schemas) = setup("type Query { fromDisk: Int }");
+            let schema = valid_schema(&config, &source, Some(&schemas)).unwrap();
+            assert!(
+                schema.types["Query"]
+                    .as_object()
+                    .unwrap()
+                    .fields
+                    .contains_key("fromDisk")
+            );
+        }
     }
 }

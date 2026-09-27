@@ -1945,6 +1945,67 @@ async fn test_a_deleted_directory_changes_the_file_set() {
     );
 }
 
+/// Codegen generates against the server's in-memory schema, so a schema change
+/// the server hears about reaches the next codegen run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_codegen_follows_a_schema_reload() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type User { id: ID! count: Int } type Query { me: User }",
+    )
+    .unwrap();
+    fs::create_dir_all(base_dir.join("src")).unwrap();
+    fs::write(
+        base_dir.join("src/query.graphql"),
+        "query GetCount { me { count } }",
+    )
+    .unwrap();
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+                .with_output_dir("gen".to_string()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false)
+    .with_enable_schema_cache(false);
+
+    let service = setup_lsp_with_scan_complete(config).await;
+    let backend = service.inner();
+    backend.run_codegen().await;
+    assert!(generated_with(&base_dir, "number"), "count starts as an Int");
+
+    fs::write(
+        &schema_path,
+        "type User { id: ID! count: String } type Query { me: User }",
+    )
+    .unwrap();
+    graphox_lsp::backend::handlers::document_sync::process_watched_file_batch(
+        backend,
+        vec![FileEvent {
+            uri: graphox::utils::path_to_uri(&schema_path).unwrap(),
+            typ: FileChangeType::CHANGED,
+        }],
+    )
+    .await;
+    backend.run_codegen().await;
+
+    let generated = snapshot_generated_tree(&base_dir.join("gen"));
+    assert!(
+        generated
+            .values()
+            .any(|c| c.contains("count") && c.contains("string")),
+        "the reloaded schema was used: {generated:#?}"
+    );
+    assert!(!generated_with(&base_dir, "number"), "{generated:#?}");
+}
+
 async fn setup_lsp_with_scan_complete(config: Config) -> LspService<support::LspBackend> {
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
