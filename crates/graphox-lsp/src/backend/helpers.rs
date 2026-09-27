@@ -26,13 +26,32 @@ pub fn update_operation_name_index(
     old_operation_names: Option<&[Arc<str>]>,
     new_operations: &[OperationDef],
 ) -> AHashSet<Arc<str>> {
-    let mut affected_operation_names = AHashSet::default();
-    let old_operation_names: AHashSet<Arc<str>> = old_operation_names
+    let old_names: AHashSet<Arc<str>> = old_operation_names
         .into_iter()
         .flat_map(|names| names.iter().cloned())
         .collect();
+    let new_names: AHashSet<Arc<str>> = named_operation_names(new_operations)
+        .iter()
+        .cloned()
+        .collect();
 
-    for name in &old_operation_names {
+    // Other documents only care which names list this document, since that
+    // decides whether theirs is a duplicate. So a name is affected when this
+    // document's presence under it changes. That is read from the index, not
+    // from `old_operation_names`: a document the scan found is in the metadata
+    // but not yet in this index, and opening it does change what others see.
+    let listed = |name: &Arc<str>| {
+        operation_names
+            .get(name)
+            .is_some_and(|entry| entry.value().iter().any(|(_, op_uri)| op_uri == uri))
+    };
+    let listed_before: AHashSet<Arc<str>> = old_names
+        .union(&new_names)
+        .filter(|name| listed(name))
+        .cloned()
+        .collect();
+
+    for name in &old_names {
         let mut remove_entry = false;
         if let Some(mut entry) = operation_names.get_mut(name) {
             entry.value_mut().retain(|(_, op_uri)| op_uri != uri);
@@ -41,33 +60,35 @@ pub fn update_operation_name_index(
         if remove_entry {
             operation_names.remove(name);
         }
-        affected_operation_names.insert(name.clone());
     }
 
-    let Some(path) = graphox_core::utils::uri_to_path(uri) else {
-        return affected_operation_names;
-    };
-    let Some(schema_key) = config.get_schema_for_path(&path) else {
-        return affected_operation_names;
-    };
+    let project_key = graphox_core::utils::uri_to_path(uri).and_then(|path| {
+        let schema_key = config.get_schema_for_path(&path)?;
+        Some(
+            config
+                .get_project_for_path(&path)
+                .map(|project| project.include().as_key())
+                .unwrap_or(schema_key),
+        )
+    });
 
-    let project_key = config
-        .get_project_for_path(&path)
-        .map(|project| project.include().as_key())
-        .unwrap_or(schema_key);
-    let project_key_arc: Arc<str> = project_key.into();
-
-    for operation in new_operations {
-        if let Some(name) = &operation.name {
-            affected_operation_names.insert(name.clone());
-            operation_names
-                .entry(name.clone())
-                .or_default()
-                .push((project_key_arc.clone(), uri.clone()));
+    if let Some(project_key) = project_key {
+        let project_key_arc: Arc<str> = project_key.into();
+        for operation in new_operations {
+            if let Some(name) = &operation.name {
+                operation_names
+                    .entry(name.clone())
+                    .or_default()
+                    .push((project_key_arc.clone(), uri.clone()));
+            }
         }
     }
 
-    affected_operation_names
+    old_names
+        .union(&new_names)
+        .filter(|name| listed_before.contains(*name) != listed(name))
+        .cloned()
+        .collect()
 }
 
 /// Execute an async operation with tracing and timeout support
@@ -207,9 +228,12 @@ mod tests {
             &new_operations,
         );
 
-        assert!(affected.contains("SharedQuery"));
+        // Only names that appeared or disappeared change what other documents
+        // see; `SharedQuery` is still here.
+        assert!(!affected.contains("SharedQuery"));
         assert!(affected.contains("OldQuery"));
         assert!(affected.contains("NewQuery"));
+        assert_eq!(affected.len(), 2);
 
         let shared = operation_names.get("SharedQuery").unwrap();
         assert_eq!(shared.len(), 2);
@@ -221,5 +245,87 @@ mod tests {
         let new_query = operation_names.get("NewQuery").unwrap();
         assert_eq!(new_query.len(), 1);
         assert_eq!(new_query[0].1, uri);
+    }
+
+    #[test]
+    fn an_edit_that_keeps_every_name_affects_no_other_document() {
+        let temp_dir = tempdir().unwrap();
+        let base_dir = temp_dir.path().to_path_buf();
+        fs::write(
+            base_dir.join("schema.graphql"),
+            "type Query { a: Int b: Int }",
+        )
+        .unwrap();
+        let config = Config::new_test(
+            base_dir.clone(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+            ],
+        );
+        let uri = graphox_core::utils::path_to_uri(base_dir.join("query.graphql")).unwrap();
+        let operation_names: OperationNamesMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let operation = |body: &str| OperationDef {
+            name: Some(Arc::from("GetA")),
+            operation_type: Arc::from("query"),
+            source_text: Arc::from(body),
+        };
+
+        let first = update_operation_name_index(
+            &operation_names,
+            &config,
+            &uri,
+            None,
+            &[operation("query GetA { a }")],
+        );
+        assert!(first.contains("GetA"), "a new name is a change: {first:?}");
+
+        let old: Arc<[Arc<str>]> = vec![Arc::from("GetA")].into();
+        let edited = update_operation_name_index(
+            &operation_names,
+            &config,
+            &uri,
+            Some(old.as_ref()),
+            &[operation("query GetA { a b }")],
+        );
+        assert!(edited.is_empty(), "a body edit is not: {edited:?}");
+        // The index still lists the document once under its name.
+        assert_eq!(operation_names.get("GetA").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn opening_a_document_the_index_does_not_list_yet_is_a_change() {
+        let temp_dir = tempdir().unwrap();
+        let base_dir = temp_dir.path().to_path_buf();
+        fs::write(base_dir.join("schema.graphql"), "type Query { a: Int }").unwrap();
+        let config = Config::new_test(
+            base_dir.clone(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+            ],
+        );
+        let uri = graphox_core::utils::path_to_uri(base_dir.join("query.graphql")).unwrap();
+        let operation_names: OperationNamesMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+
+        // The scan recorded the name in the document's metadata, but nothing
+        // put the document in the index.
+        let from_scan: Arc<[Arc<str>]> = vec![Arc::from("GetA")].into();
+        let affected = update_operation_name_index(
+            &operation_names,
+            &config,
+            &uri,
+            Some(from_scan.as_ref()),
+            &[OperationDef {
+                name: Some(Arc::from("GetA")),
+                operation_type: Arc::from("query"),
+                source_text: Arc::from("query GetA { a }"),
+            }],
+        );
+        assert!(affected.contains("GetA"), "{affected:?}");
     }
 }
