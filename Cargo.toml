@@ -14,6 +14,7 @@ members = [
   "crates/graphox-codegen",
   "crates/graphox-lsp",
   "crates/graphox-cli",
+  "crates/graphox-lsp-scenario",
 ]
 
 [workspace.package]
@@ -175,6 +176,13 @@ split-debuginfo = "packed"
 lto = "thin"
 strip = true
 codegen-units = 1
+
+# Release code with symbols, so stack samples of the server name its functions.
+# Used by `make lsp-scenario`.
+[profile.profiling]
+inherits = "release"
+debug = "line-tables-only"
+strip = false
 
 [patch.crates-io]
 # ariadne writes "Unable to fetch source ..." to stderr when a cache cannot
