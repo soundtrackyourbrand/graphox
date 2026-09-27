@@ -117,7 +117,7 @@ schema_types:
 # LSP settings
 lsp_automatic_codegen: true                       # Auto-run codegen on file changes
 lsp_codegen_throttle_ms: 300                      # Throttle automatic codegen
-watch_all_files: true                            # Watch all workspace files
+watch_all_files: true                            # Watch every file that can hold GraphQL
 tracing:
   enabled: true                                   # Enable LSP request tracing
   threshold_ms: 20                                # Trace requests exceeding threshold
@@ -826,7 +826,7 @@ Configure performance-related settings for large workspaces.
 # LSP settings
 lsp_automatic_codegen: true
 lsp_codegen_throttle_ms: 500  # Increase throttle for large workspaces
-watch_all_files: false  # Disable watching all files, only watch GraphQL files
+watch_all_files: false  # Watch only the config and schema files
 
 # Codegen settings
 codegen_watch_debounce_ms: 300

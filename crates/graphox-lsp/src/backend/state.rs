@@ -108,6 +108,8 @@ pub struct Backend {
     /// Debounces and batches `workspace/didChangeWatchedFiles` bursts (pulls,
     /// branch switches) so they are processed in a single pass.
     pub watched_files_debouncer: Arc<super::watched_files_debouncer::WatchedFilesDebouncer>,
+    /// Registers file watchers with the client, in order.
+    pub watcher_registrar: Arc<super::file_watchers::WatcherRegistrar>,
     /// Caches codegen's workspace metadata (filesystem walk + fragment metadata),
     /// keyed by workspace version, so back-to-back codegen runs for operation-body
     /// edits don't redo a full-workspace scan. See [`super::codegen_runner::CodegenMetadataCache`].
@@ -260,6 +262,7 @@ impl Backend {
                 last_full_validation_version,
                 codegen_throttle,
                 watched_files_debouncer,
+                watcher_registrar: Arc::default(),
                 codegen_metadata_cache,
                 fragment_metadata_cache,
                 validation_fragment_cache,
@@ -922,6 +925,12 @@ impl Backend {
 
         // Update the config
         *self.config.write().unwrap() = new_config.clone();
+
+        // The schema files and `watch_all_files` may have changed.
+        if let Ok(caps) = self.client_capabilities.read() {
+            self.watcher_registrar
+                .register(self.client.clone(), &new_config, &caps);
+        }
 
         // Cancel any active scan and reset workspace loaded state
         {
