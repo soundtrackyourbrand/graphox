@@ -26,13 +26,16 @@ pub fn update_operation_name_index(
     old_operation_names: Option<&[Arc<str>]>,
     new_operations: &[OperationDef],
 ) -> AHashSet<Arc<str>> {
-    let mut affected_operation_names = AHashSet::default();
-    let old_operation_names: AHashSet<Arc<str>> = old_operation_names
+    let old_names: AHashSet<Arc<str>> = old_operation_names
         .into_iter()
         .flat_map(|names| names.iter().cloned())
         .collect();
+    let new_names: AHashSet<Arc<str>> = named_operation_names(new_operations)
+        .iter()
+        .cloned()
+        .collect();
 
-    for name in &old_operation_names {
+    for name in &old_names {
         let mut remove_entry = false;
         if let Some(mut entry) = operation_names.get_mut(name) {
             entry.value_mut().retain(|(_, op_uri)| op_uri != uri);
@@ -41,8 +44,15 @@ pub fn update_operation_name_index(
         if remove_entry {
             operation_names.remove(name);
         }
-        affected_operation_names.insert(name.clone());
     }
+
+    // Other documents only care whether a name is present here, which decides
+    // whether theirs is a duplicate. An edit that keeps every name affects none
+    // of them.
+    let affected_operation_names: AHashSet<Arc<str>> = old_names
+        .symmetric_difference(&new_names)
+        .cloned()
+        .collect();
 
     let Some(path) = graphox_core::utils::uri_to_path(uri) else {
         return affected_operation_names;
@@ -59,7 +69,6 @@ pub fn update_operation_name_index(
 
     for operation in new_operations {
         if let Some(name) = &operation.name {
-            affected_operation_names.insert(name.clone());
             operation_names
                 .entry(name.clone())
                 .or_default()
@@ -207,9 +216,12 @@ mod tests {
             &new_operations,
         );
 
-        assert!(affected.contains("SharedQuery"));
+        // Only names that appeared or disappeared change what other documents
+        // see; `SharedQuery` is still here.
+        assert!(!affected.contains("SharedQuery"));
         assert!(affected.contains("OldQuery"));
         assert!(affected.contains("NewQuery"));
+        assert_eq!(affected.len(), 2);
 
         let shared = operation_names.get("SharedQuery").unwrap();
         assert_eq!(shared.len(), 2);
@@ -221,5 +233,53 @@ mod tests {
         let new_query = operation_names.get("NewQuery").unwrap();
         assert_eq!(new_query.len(), 1);
         assert_eq!(new_query[0].1, uri);
+    }
+
+    #[test]
+    fn an_edit_that_keeps_every_name_affects_no_other_document() {
+        let temp_dir = tempdir().unwrap();
+        let base_dir = temp_dir.path().to_path_buf();
+        fs::write(
+            base_dir.join("schema.graphql"),
+            "type Query { a: Int b: Int }",
+        )
+        .unwrap();
+        let config = Config::new_test(
+            base_dir.clone(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                    .with_include(GlobPattern::Single("**/*.graphql".to_string())),
+            ],
+        );
+        let uri = graphox_core::utils::path_to_uri(base_dir.join("query.graphql")).unwrap();
+        let operation_names: OperationNamesMap =
+            Arc::new(DashMap::with_hasher(ahash::RandomState::default()));
+        let operation = |body: &str| OperationDef {
+            name: Some(Arc::from("GetA")),
+            operation_type: Arc::from("query"),
+            source_text: Arc::from(body),
+        };
+
+        let first = update_operation_name_index(
+            &operation_names,
+            &config,
+            &uri,
+            None,
+            &[operation("query GetA { a }")],
+        );
+        assert!(first.contains("GetA"), "a new name is a change: {first:?}");
+
+        let old: Arc<[Arc<str>]> = vec![Arc::from("GetA")].into();
+        let edited = update_operation_name_index(
+            &operation_names,
+            &config,
+            &uri,
+            Some(old.as_ref()),
+            &[operation("query GetA { a b }")],
+        );
+        assert!(edited.is_empty(), "a body edit is not: {edited:?}");
+        // The index still lists the document once under its name.
+        assert_eq!(operation_names.get("GetA").unwrap().len(), 1);
     }
 }

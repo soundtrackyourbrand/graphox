@@ -1659,6 +1659,10 @@ async fn test_codegen_metadata_cache_serves_fresh_operation_body() {
 
     // Add a field to the SAME operation (no rename, no fragments): this does not bump
     // the workspace version, so the next codegen run reuses the cached metadata.
+    let version_before = service
+        .inner()
+        .workspace_version
+        .load(std::sync::atomic::Ordering::SeqCst);
     service
         .call(
             Request::build("textDocument/didChange")
@@ -1680,6 +1684,15 @@ async fn test_codegen_metadata_cache_serves_fresh_operation_body() {
         )
         .await
         .unwrap();
+
+    assert_eq!(
+        service
+            .inner()
+            .workspace_version
+            .load(std::sync::atomic::Ordering::SeqCst),
+        version_before,
+        "An operation-body edit must not bump the workspace version"
+    );
 
     // The cache hit must still produce the edited body from the live document.
     assert!(
