@@ -22,11 +22,13 @@ pnpm graphox lsp
 
 # Validate GraphQL files
 pnpm graphox check
+pnpm graphox check apps/web          # Report only files under a directory
 
 # Generate TypeScript types
 pnpm graphox codegen
 pnpm graphox codegen --clean
 pnpm graphox codegen --watch
+pnpm graphox codegen packages/schema  # Only the projects and schema_types under a directory
 
 # Run performance benchmarks
 pnpm graphox benchmark

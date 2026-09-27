@@ -18,9 +18,10 @@ enum Commands {
     Lsp,
     /// Scan files for deprecation warnings
     Check {
-        /// Directory to scan
-        #[arg(default_value = ".")]
-        path: String,
+        /// Report only files under this directory. The whole workspace is
+        /// still validated, so fragments from elsewhere resolve. Without it,
+        /// every file is reported
+        path: Option<String>,
         /// Show ignored deprecations
         #[arg(short, long)]
         verbose: bool,
@@ -33,9 +34,10 @@ enum Commands {
     },
     /// Generate TypeScript types for operations and fragments
     Codegen {
-        /// Directory to scan
-        #[arg(default_value = ".")]
-        path: String,
+        /// Generate only the projects and schema_types under this directory.
+        /// Generating only schema_types skips the workspace scan. Without it,
+        /// everything is generated
+        path: Option<String>,
         /// Watch for changes and re-run codegen
         #[arg(short, long)]
         watch: bool,
@@ -132,7 +134,7 @@ async fn main() {
             run_lsp(config).await;
         }
         Some(Commands::Check {
-            path: _,
+            path,
             verbose,
             reporter,
             fail_on,
@@ -154,15 +156,17 @@ async fn main() {
                 graphox_core::utils::flush_stdio();
                 std::process::exit(1);
             };
-            run_check(config, verbose, reporter, fail_on).await;
+            let scope = scope_from(path.as_deref(), &config);
+            run_check(config, verbose, reporter, fail_on, scope).await;
         }
         Some(Commands::Codegen {
-            path: _,
+            path,
             watch,
             verbose,
             clean,
         }) => {
-            run_codegen(config, watch, verbose, clean).await;
+            let scope = scope_from(path.as_deref(), &config);
+            run_codegen(config, watch, verbose, clean, scope).await;
         }
         Some(Commands::Analyze { tool }) => match tool {
             AnalyzeTool::Selections {
@@ -227,6 +231,19 @@ async fn main() {
             instrument_scan,
         }) => {
             run_benchmark(config, verbose, instrument_scan).await;
+        }
+    }
+}
+
+/// The `[PATH]` argument as a scope, or the whole workspace without one.
+fn scope_from(path: Option<&str>, config: &Config) -> Option<graphox_cli::PathScope> {
+    let path = path?;
+    match graphox_cli::PathScope::new(path, config) {
+        Ok(scope) => Some(scope),
+        Err(message) => {
+            eprintln!("Error: {message}");
+            graphox_core::utils::flush_stdio();
+            std::process::exit(1);
         }
     }
 }

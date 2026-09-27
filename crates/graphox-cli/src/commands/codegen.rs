@@ -29,9 +29,15 @@ pub struct CodegenParams<'a> {
     pub type_cache: &'a codegen::SchemaAnalysisCaches,
 }
 
-pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: bool) {
+pub async fn run_codegen(
+    mut config: Config,
+    watch: bool,
+    verbose: bool,
+    clean: bool,
+    scope: Option<super::PathScope>,
+) {
     if !watch {
-        if !execute_codegen(config, verbose, clean).await {
+        if !execute_codegen(config, verbose, clean, scope.as_ref()).await {
             eprintln!("{}", "Codegen failed.".red());
             graphox_core::utils::flush_stdio();
             std::process::exit(1);
@@ -41,7 +47,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
 
     'watch_loop: loop {
         println!("{}", "Watching for changes...".bright_black());
-        let _ = execute_codegen(config.clone(), verbose, false).await;
+        let _ = execute_codegen(config.clone(), verbose, false, scope.as_ref()).await;
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let (config_tx, mut config_rx) = tokio::sync::mpsc::channel(1);
@@ -139,7 +145,7 @@ pub async fn run_codegen(mut config: Config, watch: bool, verbose: bool, clean: 
                         "{}",
                         "\nChange detected, re-running codegen...".bright_black()
                     );
-                    let _ = execute_codegen(config.clone(), verbose, false).await;
+                    let _ = execute_codegen(config.clone(), verbose, false, scope.as_ref()).await;
                 }
             }
         }
@@ -208,10 +214,68 @@ fn should_trigger_codegen_for_path(path: &Path) -> bool {
         || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"))
 }
 
-async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
+/// With a path, the projects to generate: those whose include roots are under
+/// it or contain it, and every project that shares an output directory with
+/// one of them. That directory's entrypoint and manifest list all of its
+/// projects, so generating only some would drop the others from them.
+fn select_projects(cfg: &Config, scope: Option<&super::PathScope>) -> Vec<bool> {
+    let Some(scope) = scope else {
+        return vec![true; cfg.projects().len()];
+    };
+    let mut selected: Vec<bool> = cfg
+        .projects()
+        .iter()
+        .map(|project| {
+            cfg.get_project_codegen_enabled(project)
+                && project
+                    .include()
+                    .patterns()
+                    .iter()
+                    .any(|pattern| scope.overlaps(cfg, &utils::get_glob_root(pattern)))
+        })
+        .collect();
+    let output_dir = |project: &graphox_core::config::ProjectConfig| {
+        utils::canonicalize_cached(
+            &cfg.base_dir()
+                .join(project.output_dir().unwrap_or("__generated__")),
+        )
+    };
+    let shared: HashSet<PathBuf> = cfg
+        .projects()
+        .iter()
+        .zip(&selected)
+        .filter(|(_, selected)| **selected)
+        .map(|(project, _)| output_dir(project))
+        .collect();
+    for (project, selected) in cfg.projects().iter().zip(selected.iter_mut()) {
+        if !*selected
+            && cfg.get_project_codegen_enabled(project)
+            && shared.contains(&output_dir(project))
+        {
+            *selected = true;
+        }
+    }
+    selected
+}
+
+async fn execute_codegen(
+    config: Config,
+    verbose: bool,
+    clean: bool,
+    scope: Option<&super::PathScope>,
+) -> bool {
     let mut success = true;
 
     let cfg = config;
+
+    if clean && let Some(scope) = scope {
+        eprintln!(
+            "{}: --clean removes all generated output and does not take a path (got '{}')",
+            "Error".red(),
+            scope.given()
+        );
+        return false;
+    }
 
     if clean {
         // What `--clean` promises is that the generated output is gone. The
@@ -234,6 +298,34 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     // `schema_types` whose files that source covers (used for type-import mapping and
     // the schema-import fallback in the project loop).
     let schema_types = cfg.schema_types();
+
+    // With a path, only the work under it runs. schema_types need nothing but
+    // their schema, so a run that selects no project skips the workspace scan.
+    let selected_schema_types: Vec<_> = schema_types
+        .iter()
+        .filter(|st| {
+            scope.is_none_or(|scope| {
+                std::iter::once(Path::new(st.output()))
+                    .chain(st.possible_types())
+                    .chain(st.type_policies())
+                    .any(|output| scope.contains(&cfg, output))
+            })
+        })
+        .collect();
+    let selected_projects = select_projects(&cfg, scope);
+    let run_projects = selected_projects.iter().any(|selected| *selected);
+    if let Some(scope) = scope
+        && selected_schema_types.is_empty()
+        && !run_projects
+    {
+        eprintln!(
+            "{}: '{}' holds no project and no schema_types output to generate",
+            "Error".red(),
+            scope.given()
+        );
+        return false;
+    }
+
     let mut unique_sources = HashSet::new();
     for project in cfg.projects() {
         unique_sources.insert(project.schema().as_key());
@@ -258,55 +350,63 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     // precompute are mutually independent and each non-trivial. Run them concurrently,
     // and — crucially — validate each DISTINCT schema once rather than per project
     // (many projects share the same large schema).
-    let (workspace_metadata, (validated_schemas, workspace_type_imports)) = rayon::join(
-        || {
-            Engine::scan_workspace(
-                &cfg,
-                tower_lsp_server::ls_types::PositionEncodingKind::UTF8,
-                None,
-            )
-        },
-        || {
-            rayon::join(
-                || super::build_validated_schemas(&cfg),
-                || -> std::collections::HashMap<String, HashMap<String, String>> {
-                    unique_sources
-                        .par_iter()
-                        .map(|key| {
-                            let mut project_type_imports = HashMap::default();
-                            if let Some(matches) = source_to_matches.get(key) {
-                                for st in matches.iter().rev() {
-                                    if let Some(import_path) = st.import()
-                                        && let Ok(st_schema) = schema::load_schema_with_cache(
-                                            cfg.base_dir(),
-                                            st.schema(),
-                                            cfg.enable_schema_cache(),
-                                        )
-                                    {
-                                        for type_name in st_schema.types.keys() {
-                                            project_type_imports.insert(
-                                                type_name.to_string(),
-                                                import_path.to_string(),
-                                            );
+    let scan = run_projects.then(|| {
+        rayon::join(
+            || {
+                Engine::scan_workspace(
+                    &cfg,
+                    tower_lsp_server::ls_types::PositionEncodingKind::UTF8,
+                    None,
+                )
+            },
+            || {
+                rayon::join(
+                    || super::build_validated_schemas(&cfg),
+                    || -> std::collections::HashMap<String, HashMap<String, String>> {
+                        unique_sources
+                            .par_iter()
+                            .map(|key| {
+                                let mut project_type_imports = HashMap::default();
+                                if let Some(matches) = source_to_matches.get(key) {
+                                    for st in matches.iter().rev() {
+                                        if let Some(import_path) = st.import()
+                                            && let Ok(st_schema) = schema::load_schema_with_cache(
+                                                cfg.base_dir(),
+                                                st.schema(),
+                                                cfg.enable_schema_cache(),
+                                            )
+                                        {
+                                            for type_name in st_schema.types.keys() {
+                                                project_type_imports.insert(
+                                                    type_name.to_string(),
+                                                    import_path.to_string(),
+                                                );
+                                            }
                                         }
                                     }
                                 }
-                            }
-                            (key.clone(), project_type_imports)
-                        })
-                        .collect()
-                },
-            )
-        },
-    );
-    let global_metadata = &workspace_metadata.fragments;
+                                (key.clone(), project_type_imports)
+                            })
+                            .collect()
+                    },
+                )
+            },
+        )
+    });
 
     // Process projects in parallel
-    let project_results: Vec<_> = cfg
+    let project_results: Vec<_> = match &scan {
+        None => Vec::new(),
+        Some((workspace_metadata, (validated_schemas, workspace_type_imports))) => {
+            let global_metadata = &workspace_metadata.fragments;
+            cfg
         .projects()
         .par_iter()
         .enumerate()
         .filter_map(|(project_index, project)| {
+            if !selected_projects[project_index] {
+                return None;
+            }
             if !cfg.get_project_codegen_enabled(project) && !clean {
                 return None;
             }
@@ -430,7 +530,9 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
                 Err(_) => Some(Err(())),
             }
         })
-        .collect();
+        .collect()
+        }
+    };
 
     let mut project_operations: HashMap<usize, Vec<codegen::OperationGenerated>> = HashMap::new();
     let mut project_fragments: HashMap<usize, Vec<codegen::FragmentGenerated>> = HashMap::new();
@@ -453,7 +555,9 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
     // otherwise how "this file has no GraphQL" looks. Its project therefore has an
     // incomplete keep-set and must not be pruned against — the file is still there, so
     // its generated output is not an orphan.
-    if !workspace_metadata.unreadable_files.is_empty() {
+    if let Some((workspace_metadata, _)) = &scan
+        && !workspace_metadata.unreadable_files.is_empty()
+    {
         project_outputs.retain(|idx, _| {
             let has_unreadable = workspace_metadata.projects[*idx]
                 .files
@@ -470,8 +574,8 @@ async fn execute_codegen(config: Config, verbose: bool, clean: bool) -> bool {
         });
     }
 
-    if !schema_types.is_empty() && (clean || cfg.codegen().is_enabled()) {
-        let schema_results: Vec<_> = schema_types
+    if !selected_schema_types.is_empty() && (clean || cfg.codegen().is_enabled()) {
+        let schema_results: Vec<_> = selected_schema_types
             .par_iter()
             .map(|st| {
                 let abs_output = cfg.base_dir().join(st.output());
