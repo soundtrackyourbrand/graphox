@@ -40,7 +40,7 @@
 //! your `graphox.yaml` configuration file.
 
 use crate::config::SchemaSource;
-use ahash::AHashMap;
+use ahash::{AHashMap, AHashSet};
 use apollo_compiler::{Schema, validation::Valid};
 use dashmap::DashMap;
 use std::fs;
@@ -108,6 +108,13 @@ impl CacheMetadata {
         }
 
         Ok(Self { file_mtimes })
+    }
+
+    /// Whether the entry was built from exactly `files`.
+    fn covers_exactly(&self, files: &[String]) -> bool {
+        let files: AHashSet<&str> = files.iter().map(String::as_str).collect();
+        files.len() == self.file_mtimes.len()
+            && self.file_mtimes.keys().all(|f| files.contains(f.as_str()))
     }
 
     /// Check if this metadata is still valid (no files have changed)
@@ -449,15 +456,18 @@ pub fn prune_cache_if_due() {
 }
 
 fn get_cache_path(base_dir: &Path, source: &SchemaSource) -> PathBuf {
-    let cache_dir = get_cache_dir();
     let key = make_cache_key(base_dir, source);
-    let hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = ahash::AHasher::default();
-        key.hash(&mut hasher);
-        hasher.finish()
-    };
-    cache_dir.join(format!("schema-{:x}.cache", hash))
+    get_cache_dir().join(format!("schema-{:x}.cache", stable_hash(&key)))
+}
+
+/// A 64-bit FNV-1a hash of `key`. The cache file name has to come out the same
+/// in every process and every build, or no run finds what an earlier one wrote.
+/// The hasher used before was seeded per process, so every CLI run missed and
+/// wrote a new set of files.
+fn stable_hash(key: &str) -> u64 {
+    key.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<String> {
@@ -484,6 +494,13 @@ pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<Str
 
     if !entry.metadata.is_valid(base_dir) {
         try_remove_file(&cache_path);
+        return None;
+    }
+
+    // The file name is a hash, and nothing else in the entry says which source
+    // wrote it. A collision would otherwise serve another source's schema for as
+    // long as that source's files are unchanged.
+    if !entry.metadata.covers_exactly(&source.files()) {
         return None;
     }
 
@@ -753,6 +770,41 @@ mod tests {
         let dir = tempdir().unwrap();
         let missing = dir.path().join("does-not-exist");
         prune_cache_dir(&missing, Some(Duration::from_secs(1)), Some(1)).unwrap();
+    }
+
+    #[test]
+    fn cache_file_names_do_not_depend_on_the_process() {
+        // The FNV-1a 64 reference vectors. A seeded hasher, as used before,
+        // gives different values in every process and cannot match these.
+        assert_eq!(stable_hash(""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(stable_hash("a"), 0xaf63_dc4c_8601_ec8c);
+        assert_eq!(stable_hash("foobar"), 0x85944171f73967e8);
+    }
+
+    #[test]
+    #[ntest::timeout(2000)]
+    fn an_entry_written_for_another_source_is_not_served() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.graphql"), "type Query { a: Int }").unwrap();
+        fs::write(dir.path().join("b.graphql"), "type Query { b: Int }").unwrap();
+        let a = SchemaSource::Single("a.graphql".to_string());
+        let b = SchemaSource::Single("b.graphql".to_string());
+
+        save_to_cache(dir.path(), &a, "type Query { a: Int }").unwrap();
+        // What a hash collision would leave behind: a's entry under b's name.
+        fs::copy(
+            get_cache_path(dir.path(), &a),
+            get_cache_path(dir.path(), &b),
+        )
+        .unwrap();
+
+        assert_eq!(try_load_from_cache(dir.path(), &b), None);
+        assert_eq!(
+            try_load_from_cache(dir.path(), &a),
+            Some("type Query { a: Int }".to_string())
+        );
+        let _ = fs::remove_file(get_cache_path(dir.path(), &a));
+        let _ = fs::remove_file(get_cache_path(dir.path(), &b));
     }
 
     #[test]

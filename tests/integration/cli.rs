@@ -1549,3 +1549,46 @@ projects:
     assert!(success, "expected a clean exit, got:\n{out}");
     assert!(!out.contains("matched no documents"), "got:\n{out}");
 }
+
+/// A second run finds the schema cache the first one wrote. The file name used
+/// to come from a hasher seeded per process, so every run missed and added a
+/// new set of cache files.
+#[test]
+#[ntest::timeout(10000)]
+fn test_cli_runs_reuse_the_schema_cache() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let temp_dir = fresh_dir("graphox_schema_cache_reuse");
+    std::fs::write(
+        temp_dir.join("schema.graphql"),
+        "type Query { me: User } type User { id: ID! }",
+    )
+    .unwrap();
+    std::fs::write(temp_dir.join("query.graphql"), "query Me { me { id } }").unwrap();
+    std::fs::write(
+        temp_dir.join("graphox.yaml"),
+        "projects:\n  - schema: schema.graphql\n    include: \"*.graphql\"\n",
+    )
+    .unwrap();
+
+    let cache_files = || {
+        std::fs::read_dir(crate::support::cmd::cache_dir(&temp_dir))
+            .map(|entries| {
+                entries
+                    .flatten()
+                    .filter(|e| e.file_name().to_string_lossy().ends_with(".cache"))
+                    .count()
+            })
+            .unwrap_or(0)
+    };
+
+    for run in 1..=2 {
+        let output = graphox(bin_path, &temp_dir)
+            .arg("check")
+            .output()
+            .expect("Failed to execute process");
+        assert_command_succeeded(&output, "check", &temp_dir);
+        assert_eq!(cache_files(), 1, "after run {run}");
+    }
+
+    std::fs::remove_dir_all(temp_dir).ok();
+}
