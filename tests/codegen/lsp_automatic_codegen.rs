@@ -1763,6 +1763,188 @@ async fn test_codegen_reads_a_file_again_once_it_changes() {
     assert!(generated_with("GetName"), "the changed file was generated");
 }
 
+fn did_open_request(path: &std::path::Path, text: &str) -> Request {
+    Request::build("textDocument/didOpen")
+        .params(
+            serde_json::to_value(DidOpenTextDocumentParams {
+                text_document: TextDocumentItem {
+                    uri: graphox::utils::path_to_uri(path).unwrap(),
+                    language_id: "graphql".to_string(),
+                    version: 1,
+                    text: text.to_string(),
+                },
+            })
+            .unwrap(),
+        )
+        .finish()
+}
+
+fn file_list_workspace() -> (tempfile::TempDir, std::path::PathBuf, Config) {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+    fs::create_dir_all(base_dir.join("src")).unwrap();
+    fs::write(
+        base_dir.join("src/fragment.graphql"),
+        "fragment Me on User { id }",
+    )
+    .unwrap();
+    fs::write(
+        base_dir.join("src/query.graphql"),
+        "query GetMe { me { ...Me } }",
+    )
+    .unwrap();
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+                .with_output_dir("gen".to_string()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false)
+    .with_enable_schema_cache(true);
+    (dir, base_dir, config)
+}
+
+fn generated_with(base_dir: &std::path::Path, needle: &str) -> bool {
+    snapshot_generated_tree(&base_dir.join("gen"))
+        .values()
+        .any(|content| content.contains(needle))
+}
+
+/// A fragment edit changes what codegen generates but not which files exist,
+/// so codegen regenerates from the file lists it already has instead of walking
+/// the projects again. Files join those lists when the server learns of them.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_codegen_file_lists_follow_file_events_not_fragment_edits() {
+    let (_dir, base_dir, config) = file_list_workspace();
+    let mut service = setup_lsp_with_scan_complete(config).await;
+    service.inner().run_codegen().await;
+    assert!(generated_with(&base_dir, "GetMe"));
+
+    // A file the server is not told about.
+    let late = base_dir.join("src/late.graphql");
+    fs::write(&late, "query Late { me { id } }").unwrap();
+
+    let fragment = base_dir.join("src/fragment.graphql");
+    service
+        .call(did_open_request(&fragment, "fragment Me on User { id }"))
+        .await
+        .unwrap();
+    let version_before = service
+        .inner()
+        .workspace_version
+        .load(std::sync::atomic::Ordering::SeqCst);
+    service
+        .call(
+            Request::build("textDocument/didChange")
+                .params(
+                    serde_json::to_value(DidChangeTextDocumentParams {
+                        text_document: VersionedTextDocumentIdentifier {
+                            uri: graphox::utils::path_to_uri(&fragment).unwrap(),
+                            version: 2,
+                        },
+                        content_changes: vec![TextDocumentContentChangeEvent {
+                            range: None,
+                            range_length: None,
+                            text: "fragment Me on User { id name }".to_string(),
+                        }],
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+    let backend = service.inner();
+    assert!(
+        backend
+            .workspace_version
+            .load(std::sync::atomic::Ordering::SeqCst)
+            > version_before,
+        "a fragment edit is a workspace change"
+    );
+    backend.run_codegen().await;
+    assert!(
+        generated_with(&base_dir, "name"),
+        "the fragment edit was generated"
+    );
+    assert!(
+        !generated_with(&base_dir, "Late"),
+        "the projects were walked again for a fragment edit"
+    );
+
+    graphox_lsp::backend::handlers::document_sync::process_watched_file_batch(
+        backend,
+        vec![FileEvent {
+            uri: graphox::utils::path_to_uri(&late).unwrap(),
+            typ: FileChangeType::CREATED,
+        }],
+    )
+    .await;
+    backend.run_codegen().await;
+    assert!(
+        generated_with(&base_dir, "Late"),
+        "the created file was generated"
+    );
+}
+
+/// A file opened in the editor that the server has never seen may be new on
+/// disk, so it joins the next codegen run.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_codegen_picks_up_a_new_file_when_it_is_opened() {
+    let (_dir, base_dir, config) = file_list_workspace();
+    let mut service = setup_lsp_with_scan_complete(config).await;
+    service.inner().run_codegen().await;
+
+    let opened = base_dir.join("src/opened.graphql");
+    fs::write(&opened, "query Opened { me { id } }").unwrap();
+    service
+        .call(did_open_request(&opened, "query Opened { me { id } }"))
+        .await
+        .unwrap();
+    service.inner().run_codegen().await;
+
+    assert!(generated_with(&base_dir, "Opened"));
+}
+
+/// Deleting a directory arrives as a single event for the directory, which is
+/// not itself a GraphQL file.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_a_deleted_directory_changes_the_file_set() {
+    let (_dir, base_dir, config) = file_list_workspace();
+    let service = setup_lsp_with_scan_complete(config).await;
+    let backend = service.inner();
+    let before = backend
+        .project_files_version
+        .load(std::sync::atomic::Ordering::SeqCst);
+
+    graphox_lsp::backend::handlers::document_sync::process_watched_file_batch(
+        backend,
+        vec![FileEvent {
+            uri: graphox::utils::path_to_uri(base_dir.join("src/nested")).unwrap(),
+            typ: FileChangeType::DELETED,
+        }],
+    )
+    .await;
+
+    assert!(
+        backend
+            .project_files_version
+            .load(std::sync::atomic::Ordering::SeqCst)
+            > before
+    );
+}
+
 async fn setup_lsp_with_scan_complete(config: Config) -> LspService<support::LspBackend> {
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);

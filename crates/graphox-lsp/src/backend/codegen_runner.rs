@@ -25,13 +25,21 @@ pub struct CodegenMetadata {
     pub project_files_by_index: Vec<Vec<PathBuf>>,
 }
 
-/// Caches [`CodegenMetadata`] keyed by the workspace version. The key is sound
-/// because the workspace version bumps on every change that can affect the file set
-/// or any fragment definition (adds/removes, fragment edits) — while a pure
-/// operation-body edit, the common case, leaves it untouched, so back-to-back
-/// codegen runs for query edits reuse the cached walk + metadata instead of redoing
-/// a full-workspace scan each time.
-pub type CodegenMetadataCache = Arc<std::sync::RwLock<Option<(usize, Arc<CodegenMetadata>)>>>;
+/// The state [`CodegenMetadata`] was built from. The workspace version bumps on
+/// every change that can affect a fragment definition; the files version only
+/// when files may have been created or deleted. A fragment edit therefore
+/// rebuilds the fragment metadata from the cached file lists, and only a change
+/// to the set of files walks the projects again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct MetadataVersion {
+    pub workspace: usize,
+    pub files: usize,
+}
+
+/// Caches [`CodegenMetadata`] with the [`MetadataVersion`] it was built from, so
+/// back-to-back codegen runs for operation-body edits reuse it outright.
+pub type CodegenMetadataCache =
+    Arc<std::sync::RwLock<Option<(MetadataVersion, Arc<CodegenMetadata>)>>>;
 
 /// Size and modification time of a file: enough to tell it has not been
 /// rewritten since it was last read.
@@ -182,10 +190,13 @@ fn get_document_for_codegen(
         .or_else(|| run_cache.get(&uri).cloned())
 }
 
+/// Builds the fragment metadata, walking each project for its files unless
+/// `known_files` supplies them from an earlier run with the same file set.
 pub fn collect_codegen_metadata(
     config: &Config,
     documents: &DocumentsMap,
     no_graphql: Option<&NoGraphqlFiles>,
+    known_files: Option<&[Vec<PathBuf>]>,
     position_encoding: &tower_lsp_server::ls_types::PositionEncodingKind,
 ) -> (
     Vec<graphox_core::engine::FragmentMetadata>,
@@ -204,7 +215,10 @@ pub fn collect_codegen_metadata(
             continue;
         }
 
-        let project_files = graphox_core::utils::get_project_scan_files(config, project, None);
+        let project_files = match known_files.and_then(|known| known.get(project_idx)) {
+            Some(files) => files.clone(),
+            None => graphox_core::utils::get_project_scan_files(config, project, None),
+        };
 
         let import_alias = project.import().map(Arc::<str>::from);
 
@@ -261,7 +275,7 @@ pub async fn run_codegen(
     supports_progress: bool,
     projects_to_run: Option<HashSet<String>>,
     position_encoding: tower_lsp_server::ls_types::PositionEncodingKind,
-    metadata_cache: Option<(usize, CodegenMetadataCache)>,
+    metadata_cache: Option<(MetadataVersion, CodegenMetadataCache)>,
     no_graphql: Option<NoGraphqlFiles>,
 ) {
     // Create progress reporter
@@ -276,40 +290,54 @@ pub async fn run_codegen(
         .report("Preparing codegen metadata...", Some(5))
         .await;
 
-    // Reuse the cached workspace metadata (filesystem walk + fragment metadata) when
-    // the workspace version is unchanged; otherwise rebuild and re-cache it. The
-    // per-run document cache for closed files is always (re)built since it isn't kept
-    // in the version cache.
-    let cached_hit = metadata_cache.as_ref().and_then(|(version, cache)| {
-        cache.read().ok().and_then(|guard| {
-            guard
-                .as_ref()
-                .filter(|(v, _)| v == version)
-                .map(|(_, m)| m.clone())
-        })
-    });
+    // Reuse the cached workspace metadata when nothing it was built from has
+    // changed. When only fragments changed, rebuild it from the cached file
+    // lists; walk the projects only when files may have come or gone. The
+    // per-run document cache for closed files is always rebuilt since it isn't
+    // kept in the version cache.
+    let cached = metadata_cache
+        .as_ref()
+        .and_then(|(_, cache)| cache.read().ok().and_then(|guard| guard.clone()));
+    let version = metadata_cache.as_ref().map(|(version, _)| *version);
 
-    let (metadata, run_cache, unreadable_files) = if let Some(metadata) = cached_hit {
-        let (run_cache, unreadable) = build_run_cache(
-            &metadata.project_files_by_index,
-            &documents,
-            no_graphql.as_ref(),
-            &position_encoding,
-        );
-        (metadata, run_cache, unreadable)
-    } else {
-        let (global_metadata, project_files_by_index, run_cache, unreadable) =
-            collect_codegen_metadata(&config, &documents, no_graphql.as_ref(), &position_encoding);
-        let metadata = Arc::new(CodegenMetadata {
-            global_metadata,
-            project_files_by_index,
-        });
-        if let Some((version, cache)) = &metadata_cache
-            && let Ok(mut guard) = cache.write()
-        {
-            *guard = Some((*version, metadata.clone()));
+    let (metadata, run_cache, unreadable_files) = match (&cached, version) {
+        (Some((built_from, metadata)), Some(version)) if *built_from == version => {
+            let (run_cache, unreadable) = build_run_cache(
+                &metadata.project_files_by_index,
+                &documents,
+                no_graphql.as_ref(),
+                &position_encoding,
+            );
+            (metadata.clone(), run_cache, unreadable)
         }
-        (metadata, run_cache, unreadable)
+        _ => {
+            let known_files = match (&cached, version) {
+                (Some((built_from, metadata)), Some(version))
+                    if built_from.files == version.files =>
+                {
+                    Some(metadata.project_files_by_index.as_slice())
+                }
+                _ => None,
+            };
+            let (global_metadata, project_files_by_index, run_cache, unreadable) =
+                collect_codegen_metadata(
+                    &config,
+                    &documents,
+                    no_graphql.as_ref(),
+                    known_files,
+                    &position_encoding,
+                );
+            let metadata = Arc::new(CodegenMetadata {
+                global_metadata,
+                project_files_by_index,
+            });
+            if let Some((version, cache)) = &metadata_cache
+                && let Ok(mut guard) = cache.write()
+            {
+                *guard = Some((*version, metadata.clone()));
+            }
+            (metadata, run_cache, unreadable)
+        }
     };
 
     let global_metadata = &metadata.global_metadata;

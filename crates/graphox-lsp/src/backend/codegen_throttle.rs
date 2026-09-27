@@ -44,7 +44,7 @@ impl CodegenThrottle {
                     documents,
                     supports_progress,
                     position_encoding,
-                    workspace_version,
+                    metadata_versions,
                     codegen_metadata_cache,
                     no_graphql_files,
                 ) = {
@@ -62,7 +62,10 @@ impl CodegenThrottle {
                                 .unwrap()
                                 .supports_progress,
                             backend.get_position_encoding(),
-                            backend.workspace_version.clone(),
+                            (
+                                backend.workspace_version.clone(),
+                                backend.project_files_version.clone(),
+                            ),
                             backend.codegen_metadata_cache.clone(),
                             backend.codegen_no_graphql_files.clone(),
                         )
@@ -121,7 +124,14 @@ impl CodegenThrottle {
                 // Run codegen. Read the workspace version as late as possible (after
                 // draining queued requests) so the metadata cache is keyed on the
                 // state codegen actually runs against.
-                let version = workspace_version.load(std::sync::atomic::Ordering::SeqCst);
+                let version = super::codegen_runner::MetadataVersion {
+                    workspace: metadata_versions
+                        .0
+                        .load(std::sync::atomic::Ordering::SeqCst),
+                    files: metadata_versions
+                        .1
+                        .load(std::sync::atomic::Ordering::SeqCst),
+                };
                 super::codegen_runner::run_codegen(
                     client,
                     config,

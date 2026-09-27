@@ -114,6 +114,9 @@ pub struct Backend {
     /// keyed by workspace version, so back-to-back codegen runs for operation-body
     /// edits don't redo a full-workspace scan. See [`super::codegen_runner::CodegenMetadataCache`].
     pub codegen_metadata_cache: super::codegen_runner::CodegenMetadataCache,
+    /// Bumped whenever files may have been created or deleted, so codegen
+    /// walks the projects again. See [`super::codegen_runner::MetadataVersion`].
+    pub project_files_version: Arc<std::sync::atomic::AtomicUsize>,
     /// Files codegen found without GraphQL, so later runs skip reading them
     /// while they are unchanged. See [`super::codegen_runner::NoGraphqlFiles`].
     pub codegen_no_graphql_files: super::codegen_runner::NoGraphqlFiles,
@@ -238,6 +241,7 @@ impl Backend {
             );
 
             let codegen_metadata_cache = Arc::new(std::sync::RwLock::new(None));
+            let project_files_version = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let codegen_no_graphql_files =
                 Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default()));
 
@@ -269,6 +273,7 @@ impl Backend {
                 watched_files_debouncer,
                 watcher_registrar: Arc::default(),
                 codegen_metadata_cache,
+                project_files_version,
                 codegen_no_graphql_files,
                 fragment_metadata_cache,
                 validation_fragment_cache,
@@ -294,6 +299,20 @@ impl Backend {
             caps.negotiated_encoding()
         } else {
             PositionEncodingKind::UTF16
+        }
+    }
+
+    /// Records that files may have been created or deleted.
+    pub fn note_file_set_changed(&self) {
+        self.project_files_version.fetch_add(1, Ordering::SeqCst);
+    }
+
+    /// What codegen's cached workspace metadata must have been built from to be
+    /// reused now.
+    pub fn codegen_metadata_version(&self) -> super::codegen_runner::MetadataVersion {
+        super::codegen_runner::MetadataVersion {
+            workspace: self.workspace_version.load(Ordering::SeqCst),
+            files: self.project_files_version.load(Ordering::SeqCst),
         }
     }
 
@@ -870,7 +889,7 @@ impl Backend {
             None,
             self.get_position_encoding(),
             Some((
-                self.workspace_version.load(Ordering::SeqCst),
+                self.codegen_metadata_version(),
                 self.codegen_metadata_cache.clone(),
             )),
             Some(self.codegen_no_graphql_files.clone()),

@@ -71,6 +71,10 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     });
 
     let old_metadata = backend.metadata.insert(uri.clone(), metadata);
+    if old_metadata.is_none() {
+        // The server has not seen this file before, so it may be new on disk.
+        backend.note_file_set_changed();
+    }
 
     let old_spreads = old_metadata.as_ref().map(|m| m.fragment_spreads.clone());
     let old_fragment_names: Option<Arc<[Arc<str>]>> = old_metadata.as_ref().map(|m| {
@@ -308,6 +312,7 @@ pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentPar
     let mut removed_from_workspace = false;
 
     if missing_on_disk {
+        backend.note_file_set_changed();
         let config = backend.config.read().unwrap().clone();
         let change_params = file_change_handler::FileChangeParams {
             client: &backend.client,
@@ -404,6 +409,15 @@ pub async fn handle_did_change_watched_files(
 pub async fn process_watched_file_batch(backend: &Backend, changes: Vec<FileEvent>) {
     if changes.is_empty() {
         return;
+    }
+
+    // Checked for every event, not only those for relevant files: deleting a
+    // directory arrives as one event for the directory.
+    if changes
+        .iter()
+        .any(|c| c.typ == FileChangeType::CREATED || c.typ == FileChangeType::DELETED)
+    {
+        backend.note_file_set_changed();
     }
 
     let config = backend.config.read().unwrap().clone();
