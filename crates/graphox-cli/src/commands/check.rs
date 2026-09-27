@@ -131,6 +131,7 @@ pub async fn run_check(
             cfg.base_dir(),
             project_config.schema(),
             &validated_schemas,
+            &project_meta.files,
             project_files,
             &workspace_metadata.documents,
             &global_used_fragments,
@@ -218,6 +219,7 @@ async fn execute_project_check(
     source: &SchemaSource,
     validated_schemas: &HashMap<String, Result<ValidSchema, String>>,
     project_files: &[PathBuf],
+    report_files: &[PathBuf],
     all_documents: &HashMap<PathBuf, DocumentState>,
     global_used_fragments: &ahash::AHashSet<Arc<str>>,
     global_public_fragments: &[FragmentCompletionInfo],
@@ -304,7 +306,10 @@ async fn execute_project_check(
         }
     }
 
-    project_files.par_iter().for_each(|path| {
+    // Fragments come from every file in the project, so a spread of one
+    // defined outside a path given to `check` still resolves; only the files
+    // being reported are diagnosed.
+    report_files.par_iter().for_each(|path| {
         let Some(doc) = all_documents.get(path) else {
             return;
         };

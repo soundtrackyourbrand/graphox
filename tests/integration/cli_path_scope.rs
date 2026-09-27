@@ -251,6 +251,33 @@ fn check_reports_only_files_under_the_path() {
     std::fs::remove_dir_all(dir).ok();
 }
 
+/// A fragment the project defines outside the path is still the project's
+/// own, so a spread of it under the path resolves, public or not.
+#[test]
+#[ntest::timeout(20000)]
+fn check_resolves_project_fragments_defined_outside_the_path() {
+    let dir = workspace("graphox_scope_check_fragments");
+    std::fs::write(
+        dir.join("apps/one/src/fragments.graphql"),
+        "fragment UserName on User { name }",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("apps/one/src/nested/deep.graphql"),
+        "query Deep { me { ...UserName } }",
+    )
+    .unwrap();
+
+    let output = run(&dir, &["check", "apps/one/src/nested"]);
+    assert_command_succeeded(&output, "check apps/one/src/nested", &dir);
+    assert!(
+        !printed(&output).contains("UserName"),
+        "{}",
+        printed(&output)
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
+
 #[test]
 #[ntest::timeout(20000)]
 fn check_fails_for_a_path_without_documents() {
