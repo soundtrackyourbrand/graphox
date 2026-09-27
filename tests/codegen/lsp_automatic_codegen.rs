@@ -1177,7 +1177,7 @@ async fn test_lsp_automatic_codegen_matches_cli_bundle_for_directory_include_pro
         "Fixture config should enable fragment AST generation"
     );
 
-    run_cli_codegen(config.clone(), false, false, false).await;
+    run_cli_codegen(config.clone(), false, false, false, None).await;
 
     let output_dir = base_dir.join("apps/mobile/app/graphql");
     let cli_snapshot = snapshot_generated_tree(&output_dir);

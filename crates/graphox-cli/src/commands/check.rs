@@ -24,6 +24,7 @@ pub async fn run_check(
     verbose: bool,
     reporter: Box<dyn Reporter>,
     fail_on: Severity,
+    scope: Option<super::PathScope>,
 ) {
     let mut success = true;
     let below_threshold = std::sync::atomic::AtomicUsize::new(0);
@@ -89,10 +90,28 @@ pub async fn run_check(
         }
     }
 
+    // With a path, the whole workspace is still validated, so fragments from
+    // anywhere resolve, but only files under the path are checked and reported.
+    let mut any_in_scope = false;
     for (project_config, project_meta) in cfg.projects().iter().zip(&workspace_metadata.projects) {
+        let scoped_files: Vec<PathBuf>;
+        let project_files = match &scope {
+            None => &project_meta.files,
+            Some(scope) => {
+                scoped_files = project_meta
+                    .files
+                    .iter()
+                    .filter(|file| scope.contains(&cfg, file))
+                    .cloned()
+                    .collect();
+                if scoped_files.is_empty() {
+                    continue;
+                }
+                &scoped_files
+            }
+        };
+        any_in_scope = true;
         reporter.report_project_start(&project_config.include().as_key());
-
-        let project_files = &project_meta.files;
 
         // A project whose pattern matches nothing would otherwise pass silently:
         // every stage below iterates the file list, so zero files means zero
@@ -112,6 +131,7 @@ pub async fn run_check(
             cfg.base_dir(),
             project_config.schema(),
             &validated_schemas,
+            &project_meta.files,
             project_files,
             &workspace_metadata.documents,
             &global_used_fragments,
@@ -129,13 +149,26 @@ pub async fn run_check(
         }
     }
 
+    if let Some(scope) = &scope
+        && !any_in_scope
+    {
+        reporter.report_error(&format!(
+            "'{}' holds no document of any project",
+            scope.given()
+        ));
+        success = false;
+    }
+
     // Check for duplicate operation names across all projects if the rule is enabled
     if config.rules().unique_operation_name() {
         let severity = config.rules().unique_operation_name_severity();
         let fails = fail_on.is_met_by(Some(severity.as_lsp()));
         for (op_name, projects_map) in &workspace_metadata.operation_names_by_project {
             for (project_idx, paths) in projects_map {
-                if paths.len() > 1 {
+                let in_scope = scope
+                    .as_ref()
+                    .is_none_or(|scope| paths.iter().any(|path| scope.contains(&cfg, path)));
+                if paths.len() > 1 && in_scope {
                     success &= !fails;
                     if !fails {
                         below_threshold.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -160,6 +193,7 @@ pub async fn run_check(
         &config,
         &workspace_metadata,
         &validated_schemas,
+        scope.as_ref(),
         fail_on,
         &below_threshold,
         reporter.as_ref(),
@@ -185,6 +219,7 @@ async fn execute_project_check(
     source: &SchemaSource,
     validated_schemas: &HashMap<String, Result<ValidSchema, String>>,
     project_files: &[PathBuf],
+    report_files: &[PathBuf],
     all_documents: &HashMap<PathBuf, DocumentState>,
     global_used_fragments: &ahash::AHashSet<Arc<str>>,
     global_public_fragments: &[FragmentCompletionInfo],
@@ -271,7 +306,10 @@ async fn execute_project_check(
         }
     }
 
-    project_files.par_iter().for_each(|path| {
+    // Fragments come from every file in the project, so a spread of one
+    // defined outside a path given to `check` still resolves; only the files
+    // being reported are diagnosed.
+    report_files.par_iter().for_each(|path| {
         let Some(doc) = all_documents.get(path) else {
             return;
         };
@@ -334,6 +372,7 @@ fn run_repeated_selections(
     config: &Config,
     workspace: &graphox_core::engine::WorkspaceMetadata,
     validated_schemas: &HashMap<String, Result<ValidSchema, String>>,
+    scope: Option<&super::PathScope>,
     fail_on: Severity,
     below_threshold: &std::sync::atomic::AtomicUsize,
     reporter: &dyn Reporter,
@@ -388,6 +427,11 @@ fn run_repeated_selections(
         let analysis = repeated_selections::analyze(schema, &sources, &options);
 
         for finding in repeated_selections::findings_for_rules(&analysis, rules) {
+            // Every document takes part in the analysis, since a recurring shape
+            // spans files, but only findings in files under the path are reported.
+            if scope.is_some_and(|scope| !scope.contains(config, &finding.path)) {
+                continue;
+            }
             // The masked source keeps the real file's offsets, so a span from
             // the parse maps straight back onto the document.
             let range_of = |path: &Path, span: Option<(usize, usize)>| {

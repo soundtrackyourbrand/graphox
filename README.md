@@ -156,11 +156,13 @@ graphox lsp
 # Validate GraphQL files
 graphox check
 graphox check --fail-on error  # Report warnings without failing the run
+graphox check apps/web         # Report only files under a directory
 
 # Generate TypeScript types
 graphox codegen
 graphox codegen --clean  # Remove generated files and caches
 graphox codegen --watch   # Watches and runs codegen of file changes
+graphox codegen packages/schema  # Only the projects and schema_types under a directory
 
 # Inspect how the workspace uses GraphQL
 graphox analyze selections                     # Selections that recur
@@ -170,6 +172,18 @@ graphox analyze usage --app apps/business      # Scoped to one app
 # Run performance benchmarks
 graphox benchmark
 ```
+
+A directory after `check` or `codegen` limits the run to what is under it. The
+workspace is still the one whose `graphox.yaml` is found from the current
+directory, and a directory with nothing to check or generate is an error.
+
+- `codegen <dir>` generates the `schema_types` whose outputs are under it, and
+  the projects whose include roots are under it or contain it. A project that
+  shares an output directory with one of those is generated too, since the
+  entrypoint there lists them all. Generating only `schema_types` needs no
+  documents, so the workspace scan is skipped.
+- `check <dir>` still validates the whole workspace, so fragments defined
+  elsewhere resolve, but reports only files under the directory.
 
 ### Command Options
 

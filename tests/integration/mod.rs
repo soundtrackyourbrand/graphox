@@ -1,5 +1,6 @@
 mod clean_test;
 mod cli;
+mod cli_path_scope;
 mod codegen_watch;
 mod cross_project_docs;
 mod cross_project_features;

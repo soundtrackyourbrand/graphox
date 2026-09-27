@@ -19,6 +19,60 @@ use rayon::prelude::*;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+/// The directory given as `[PATH]` to `check` and `codegen`, which limits what
+/// they report or generate. The workspace is still the one whose config is
+/// found from the current directory.
+#[derive(Clone, Debug)]
+pub struct PathScope {
+    dir: std::path::PathBuf,
+    /// As the user wrote it, for messages.
+    given: String,
+}
+
+impl PathScope {
+    /// Resolves `path` against the current directory. It must exist and lie
+    /// inside the workspace.
+    pub fn new(path: &str, config: &Config) -> Result<Self, String> {
+        let dir = std::fs::canonicalize(path)
+            .map_err(|e| format!("Path '{path}' cannot be used: {e}"))?;
+        let base = graphox_core::utils::canonicalize_cached(config.base_dir());
+        if !graphox_core::utils::path_starts_with(&dir, &base) {
+            return Err(format!(
+                "Path '{path}' is outside the workspace at {}",
+                config.base_dir().display()
+            ));
+        }
+        Ok(Self {
+            dir,
+            given: path.to_string(),
+        })
+    }
+
+    /// Whether `path`, absolute or relative to the workspace, is under the
+    /// scope.
+    pub fn contains(&self, config: &Config, path: &std::path::Path) -> bool {
+        let abs = config.base_dir().join(path);
+        graphox_core::utils::path_starts_with(&abs, &self.dir)
+            || graphox_core::utils::path_starts_with(
+                &graphox_core::utils::canonicalize_cached(&abs),
+                &self.dir,
+            )
+    }
+
+    /// Whether the directory `dir` is under the scope or contains it.
+    pub fn overlaps(&self, config: &Config, dir: &std::path::Path) -> bool {
+        if self.contains(config, dir) {
+            return true;
+        }
+        let abs = graphox_core::utils::canonicalize_cached(&config.base_dir().join(dir));
+        graphox_core::utils::path_starts_with(&self.dir, &abs)
+    }
+
+    pub fn given(&self) -> &str {
+        &self.given
+    }
+}
+
 pub(crate) type ValidSchema = Arc<apollo_compiler::validation::Valid<apollo_compiler::Schema>>;
 
 /// Load + validate every distinct project schema once (in parallel), keyed by schema
