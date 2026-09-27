@@ -1,5 +1,5 @@
 .PHONY: build test benchmark update-baselines verify-baselines clean help release-patch release-minor release-major
-.PHONY: cargo-build cargo-test swc-build swc-test babel-build babel-test check fmt clippy bench-compile
+.PHONY: cargo-build cargo-test swc-build swc-test babel-build babel-test check fmt clippy bench-compile lsp-scenario
 
 # Default target
 all: build
@@ -39,6 +39,12 @@ test: cargo-test swc-test babel-test
 ## benchmark: Run benchmark suit
 benchmark:
 	GRAPHOX_CACHE_DIR=$(CURDIR)/target/graphox-bench-cache cargo bench --features bench
+
+## lsp-scenario: Replay an editing session against the LSP (REPO=path, ARGS=extra options)
+lsp-scenario:
+	@test -n "$(REPO)" || (echo "usage: make lsp-scenario REPO=path/to/workspace [ARGS=...]" && exit 2)
+	cargo build --profile profiling -p graphox -p graphox-lsp-scenario
+	./target/profiling/graphox-lsp-scenario --repo $(REPO) $(ARGS)
 
 ## update-baselines: Update all test baseline files from current codegen output
 update-baselines: cargo-build

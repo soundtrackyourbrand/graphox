@@ -1,0 +1,16 @@
+[package]
+name = "graphox-lsp-scenario"
+version = "0.1.0"
+edition = "2024"
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+graphox-core = { path = "../graphox-core" }
+clap = { workspace = true }
+serde_json = { workspace = true }
+notify = { workspace = true }
+globset = { workspace = true }
+regex = { workspace = true }
+libc = "0.2"
+ls-types = { workspace = true }

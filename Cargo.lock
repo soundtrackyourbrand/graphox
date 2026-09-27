@@ -1051,6 +1051,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "graphox-lsp-scenario"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "globset",
+ "graphox-core",
+ "libc",
+ "ls-types",
+ "notify",
+ "regex",
+ "serde_json",
+]
+
+[[package]]
 name = "graphox-swc-plugin"
 version = "1.0.0"
 dependencies = [

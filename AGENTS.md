@@ -17,6 +17,9 @@ Commit, push and open pull requests only when asked.
 - `make check` — fmt, clippy, all tests including the JS plugins, and bench
   compilation. Run it before treating a change as done.
 - `make benchmark`, `make update-baselines`
+- `make lsp-scenario REPO=<workspace>` — drives the real server through an editing
+  session (typing, renames, branch switches, rebases) and reports CPU per step. Use it
+  for load that only shows up over time; see `crates/graphox-lsp-scenario/README.md`.
 - Search with `rg`, not `grep`.
 
 ## Layout
@@ -33,6 +36,8 @@ Crates under `crates/`:
 - **`graphox-lsp`** — the server. `backend/lsp.rs` has `Backend` and the protocol
   implementation, `backend/file_change_handler.rs` processes file system changes.
 - **`graphox-cli`** — the `check`, `codegen` (with watch mode) and `benchmark` commands.
+- **`graphox-lsp-scenario`** — a development tool, not shipped: a scripted LSP client
+  that measures the server over a whole session.
 
 `src/main.rs` is the CLI entry point; `src/lib.rs` re-exports the crates as the public
 API. Build-tool plugins live in `plugins/{swc,babel}` — see their READMEs.
