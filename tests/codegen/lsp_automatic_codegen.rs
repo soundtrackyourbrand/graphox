@@ -2025,9 +2025,17 @@ async fn test_created_output_and_ignored_files_leave_the_file_set_alone() {
             .project_files_version
             .load(std::sync::atomic::Ordering::SeqCst)
     };
-    let created = |rel: &str| FileEvent {
-        uri: graphox::utils::path_to_uri(base_dir.join(rel)).unwrap(),
-        typ: FileChangeType::CREATED,
+    // A watcher reports a creation for a file that is there.
+    let created = |rel: &str| {
+        let path = base_dir.join(rel);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        if !path.exists() {
+            fs::write(&path, "").unwrap();
+        }
+        FileEvent {
+            uri: graphox::utils::path_to_uri(&path).unwrap(),
+            typ: FileChangeType::CREATED,
+        }
     };
     let before = version();
 

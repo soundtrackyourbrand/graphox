@@ -404,12 +404,18 @@ pub async fn handle_did_change_watched_files(
 /// holds. Codegen writes its own output on every run, and some watchers report
 /// those writes as creations; counting them would make every run walk the
 /// projects again. A path without an extension still counts: deleting a
-/// directory arrives as a single event for the directory.
+/// directory arrives as a single event for the directory. A path that no
+/// longer exists cannot be resolved against the workspace's canonical paths,
+/// so it counts: an extra walk is cheap, a missed file is not.
 fn may_change_project_files(
     backend: &Backend,
     path: &std::path::Path,
     config: &graphox_core::Config,
 ) -> bool {
+    let Ok(path) = std::fs::canonicalize(path) else {
+        return true;
+    };
+    let path = path.as_path();
     (graphox_core::utils::is_relevant_file(path) || path.extension().is_none())
         && !config.is_output_file(path)
         && !graphox_core::utils::is_path_ignored(path, &backend.gitignore)
