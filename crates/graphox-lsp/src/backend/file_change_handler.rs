@@ -261,6 +261,13 @@ pub fn process_file_deleted(
         .get(&uri)
         .map(|m| named_operation_names(&m.operations));
 
+    // Read from the file's own metadata. The affected names below say what
+    // other documents must re-check, and a document the index never listed
+    // affects no operation name even though it held operations.
+    let had_graphql_content = params.metadata.get(&uri).is_some_and(|m| {
+        !m.fragments.is_empty() || !m.fragment_spreads.is_empty() || !m.operations.is_empty()
+    });
+
     if let Some(old) = &old_fragments {
         for name in old.iter() {
             affected_fragment_names.insert(name.clone());
@@ -303,10 +310,6 @@ pub fn process_file_deleted(
     // bundle no longer includes the removed operations) and any project that
     // consumed a fragment it defined (so cross-project consumers don't keep stale
     // generated types referencing the now-missing fragment).
-    let had_graphql_content = !affected_fragment_names.is_empty()
-        || !affected_spread_names.is_empty()
-        || !affected_operation_names.is_empty();
-
     let uris_to_validate = super::validation::get_affected_uris(
         uri,
         affected_fragment_names,
