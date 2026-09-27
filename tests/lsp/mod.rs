@@ -38,4 +38,5 @@ pub mod signature_help;
 pub mod subgraphs;
 pub mod symbols;
 pub mod timeouts;
+pub mod watched_files;
 pub mod workspace_symbols;

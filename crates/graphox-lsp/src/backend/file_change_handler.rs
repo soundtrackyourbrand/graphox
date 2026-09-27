@@ -34,7 +34,7 @@ pub struct FileChangeParams<'a> {
     pub fragment_dependents: &'a FragmentDependentsMap,
     pub fragment_definitions: &'a FragmentDefinitionsMap,
     pub operation_names: &'a OperationNamesMap,
-    pub gitignore: &'a ignore::gitignore::Gitignore,
+    pub gitignore: &'a graphox_core::utils::GitignoreMatcher,
     pub diagnostic_cache: &'a DiagnosticCacheMap,
     pub position_encoding: PositionEncodingKind,
 }
