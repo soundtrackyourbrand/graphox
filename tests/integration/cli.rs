@@ -1570,25 +1570,34 @@ fn test_cli_runs_reuse_the_schema_cache() {
     )
     .unwrap();
 
-    let cache_files = || {
-        std::fs::read_dir(crate::support::cmd::cache_dir(&temp_dir))
+    let cache_entries = || -> Vec<(std::path::PathBuf, std::time::SystemTime)> {
+        let mut entries: Vec<_> = std::fs::read_dir(crate::support::cmd::cache_dir(&temp_dir))
             .map(|entries| {
                 entries
                     .flatten()
                     .filter(|e| e.file_name().to_string_lossy().ends_with(".cache"))
-                    .count()
+                    .map(|e| (e.path(), e.metadata().unwrap().modified().unwrap()))
+                    .collect()
             })
-            .unwrap_or(0)
+            .unwrap_or_default();
+        entries.sort();
+        entries
     };
-
-    for run in 1..=2 {
+    let run_check = || {
         let output = graphox(bin_path, &temp_dir)
             .arg("check")
             .output()
             .expect("Failed to execute process");
         assert_command_succeeded(&output, "check", &temp_dir);
-        assert_eq!(cache_files(), 1, "after run {run}");
-    }
+    };
+
+    run_check();
+    let written = cache_entries();
+    assert_eq!(written.len(), 1, "the first run writes one entry");
+
+    run_check();
+    // A miss would rewrite the entry, replacing the file and its time.
+    assert_eq!(cache_entries(), written, "the second run read the entry");
 
     std::fs::remove_dir_all(temp_dir).ok();
 }
