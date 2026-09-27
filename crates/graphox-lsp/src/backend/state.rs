@@ -89,7 +89,7 @@ pub struct Backend {
     pub codegen_requested_during_scan: Arc<AtomicBool>,
     pub open_documents: Arc<dashmap::DashSet<Uri, ahash::RandomState>>,
     pub workspace_scan_cancelled: Arc<std::sync::RwLock<Arc<AtomicBool>>>,
-    pub gitignore: Arc<ignore::gitignore::Gitignore>,
+    pub gitignore: Arc<graphox_core::utils::GitignoreMatcher>,
     /// Persistent type cache per schema (keyed by schema key)
     /// Shared across all codegen runs for the same schema to maximize cache hits
     pub type_caches:

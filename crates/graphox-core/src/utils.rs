@@ -1035,11 +1035,81 @@ pub fn get_project_scan_files(
     )
 }
 
-pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
-    let mut builder = ignore::gitignore::GitignoreBuilder::new(base_dir);
+/// A workspace's `.gitignore` rules, each file's patterns anchored at the
+/// directory holding it, as git anchors them.
+///
+/// Merging every `.gitignore` into one matcher rooted at the workspace would
+/// re-anchor nested patterns at the root: a `/*` in `app/generated/.gitignore`
+/// would ignore the whole workspace instead of that one directory.
+#[derive(Clone, Debug)]
+pub struct GitignoreMatcher {
+    root: PathBuf,
+    /// One matcher per `.gitignore`, deepest directory first, so the first
+    /// decisive match is the one git would use.
+    files: Vec<ignore::gitignore::Gitignore>,
+}
 
-    // Recursively find and add all .gitignore files in the project so the matcher
-    // handles nested gitignores correctly.
+impl GitignoreMatcher {
+    pub fn empty(root: &Path) -> Self {
+        Self {
+            root: root.to_path_buf(),
+            files: Vec::new(),
+        }
+    }
+
+    /// Whether git ignores `path`, including through an ignored parent
+    /// directory. Paths outside the workspace are never ignored.
+    pub fn is_ignored(&self, path: &Path, is_dir: bool) -> bool {
+        if let Ok(rel) = path.strip_prefix(&self.root) {
+            return self.is_ignored_relative(rel, is_dir);
+        }
+        // Editors and filesystem events can report a path through a symlink
+        // or a differently spelled prefix of the same directory.
+        let canonical = canonicalize_cached(path);
+        match canonical.strip_prefix(&self.root) {
+            Ok(rel) => self.is_ignored_relative(rel, is_dir),
+            Err(_) => false,
+        }
+    }
+
+    fn is_ignored_relative(&self, rel: &Path, is_dir: bool) -> bool {
+        let components: Vec<_> = rel.components().collect();
+        let mut current = self.root.clone();
+        for (i, component) in components.iter().enumerate() {
+            current.push(component);
+            let last = i + 1 == components.len();
+            // Git does not descend into an excluded directory, so nothing below
+            // one can be re-included: the first ignored ancestor decides.
+            if self.matches_ignore(&current, if last { is_dir } else { true }) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// Git's verdict for `path` alone. The deepest `.gitignore` with a
+    /// matching rule decides, which is how a nested `!pattern` re-includes a
+    /// path a parent file ignores. A directory's own `.gitignore` does not
+    /// apply to the directory itself.
+    fn matches_ignore(&self, path: &Path, is_dir: bool) -> bool {
+        for file in &self.files {
+            if path == file.path() || !path.starts_with(file.path()) {
+                continue;
+            }
+            match file.matched(path, is_dir) {
+                ignore::Match::None => continue,
+                decided => return decided.is_ignore(),
+            }
+        }
+        false
+    }
+}
+
+pub fn get_gitignore_matcher(base_dir: &Path) -> GitignoreMatcher {
+    let mut files = Vec::new();
+
+    // Recursively find all .gitignore files in the project so nested rules are
+    // honoured.
     //
     // `git_ignore(true)` makes the walk itself honour .gitignore, so it prunes
     // ignored subtrees (e.g. `node_modules`, build output) instead of descending
@@ -1060,39 +1130,29 @@ pub fn get_gitignore_matcher(base_dir: &Path) -> ignore::gitignore::Gitignore {
         if let Ok(entry) = entry
             && entry.file_name() == ".gitignore"
         {
-            let _ = builder.add(entry.path());
+            // A file with some unparsable lines still yields its valid rules.
+            let (file, _) = ignore::gitignore::Gitignore::new(entry.path());
+            files.push(file);
         }
     }
+    files.sort_by_key(|f| std::cmp::Reverse(f.path().components().count()));
 
-    builder
-        .build()
-        .unwrap_or_else(|_| ignore::gitignore::Gitignore::empty())
+    GitignoreMatcher {
+        root: base_dir.to_path_buf(),
+        files,
+    }
 }
 
 /// Whether gitignore rules exclude this path, counting rules that ignore a
 /// parent directory.
 ///
-/// `Gitignore::matched` tests only the path handed to it, so a `dist/` rule
-/// matches the directory but not `dist/bundle.js`. Every caller here is
-/// event-driven — the codegen watcher and the LSP's watched-files handlers all
-/// receive individual paths rather than walking a tree, so nothing else prunes
-/// the ignored directory for them. Without the parent check, a production build
-/// writing into a gitignored output directory triggers a codegen run per file.
-///
-/// `matched_path_or_any_parents` panics on a path outside the matcher's root,
-/// and these paths come from editors and filesystem events, so out-of-root
-/// input is possible: a schema referenced by absolute path, or an editor
-/// reporting a linked file. Those fall back to the single-path check, which is
-/// what they got before.
-pub fn is_path_ignored(path: &Path, matcher: &ignore::gitignore::Gitignore) -> bool {
-    let is_dir = path.is_dir();
-    if path.starts_with(matcher.path()) {
-        matcher
-            .matched_path_or_any_parents(path, is_dir)
-            .is_ignore()
-    } else {
-        matcher.matched(path, is_dir).is_ignore()
-    }
+/// Every caller here is event-driven — the codegen watcher and the LSP's
+/// watched-files handlers all receive individual paths rather than walking a
+/// tree, so nothing else prunes an ignored directory for them. Without the
+/// parent check, a production build writing into a gitignored output directory
+/// triggers a codegen run per file.
+pub fn is_path_ignored(path: &Path, matcher: &GitignoreMatcher) -> bool {
+    matcher.is_ignored(path, path.is_dir())
 }
 
 pub fn find_package_root(start_path: &Path) -> Option<PathBuf> {
@@ -1762,6 +1822,219 @@ mod tests {
             Path::new("/elsewhere/query.graphql"),
             &matcher
         ));
+    }
+
+    /// Writes `files` (path, contents) under a fresh git repository.
+    fn gitignore_fixture(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path();
+        std::fs::create_dir_all(base.join(".git")).unwrap();
+        std::fs::write(base.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        for (path, contents) in files {
+            let path = base.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        }
+        dir
+    }
+
+    #[test]
+    #[ntest::timeout(10000)]
+    fn nested_root_anchored_pattern_stays_in_its_directory() {
+        // The shape that ignored an entire workspace: a generated directory that
+        // ignores everything in itself with `/*`.
+        let dir = gitignore_fixture(&[
+            ("app/generated/.gitignore", "/*\n!.gitignore\n"),
+            ("app/generated/types.ts", ""),
+            ("app/src/query.ts", ""),
+            ("root.ts", ""),
+        ]);
+        let base = dir.path();
+        let matcher = get_gitignore_matcher(base);
+
+        assert!(is_path_ignored(
+            &base.join("app/generated/types.ts"),
+            &matcher
+        ));
+        assert!(!is_path_ignored(&base.join("app/src/query.ts"), &matcher));
+        assert!(!is_path_ignored(&base.join("root.ts"), &matcher));
+        // A directory's own .gitignore does not ignore the directory.
+        assert!(!is_path_ignored(&base.join("app/generated"), &matcher));
+        assert!(!is_path_ignored(
+            &base.join("app/generated/.gitignore"),
+            &matcher
+        ));
+    }
+
+    #[test]
+    #[ntest::timeout(10000)]
+    fn nested_patterns_apply_only_below_their_file() {
+        let dir = gitignore_fixture(&[
+            ("packages/a/.gitignore", "*.log\n/out\n"),
+            ("packages/a/debug.log", ""),
+            ("packages/a/deep/debug.log", ""),
+            ("packages/a/out/x.ts", ""),
+            ("packages/a/deep/out/x.ts", ""),
+            ("packages/b/debug.log", ""),
+            ("packages/b/out/x.ts", ""),
+            ("out/x.ts", ""),
+        ]);
+        let base = dir.path();
+        let matcher = get_gitignore_matcher(base);
+
+        assert!(is_path_ignored(
+            &base.join("packages/a/debug.log"),
+            &matcher
+        ));
+        assert!(is_path_ignored(
+            &base.join("packages/a/deep/debug.log"),
+            &matcher
+        ));
+        assert!(is_path_ignored(&base.join("packages/a/out/x.ts"), &matcher));
+        // `/out` is anchored at packages/a, not at every directory below it.
+        assert!(!is_path_ignored(
+            &base.join("packages/a/deep/out/x.ts"),
+            &matcher
+        ));
+        assert!(!is_path_ignored(
+            &base.join("packages/b/debug.log"),
+            &matcher
+        ));
+        assert!(!is_path_ignored(
+            &base.join("packages/b/out/x.ts"),
+            &matcher
+        ));
+        assert!(!is_path_ignored(&base.join("out/x.ts"), &matcher));
+    }
+
+    #[test]
+    #[ntest::timeout(10000)]
+    fn deeper_negation_overrides_a_parent_rule() {
+        let dir = gitignore_fixture(&[
+            (".gitignore", "*.generated.ts\n"),
+            ("src/.gitignore", "!keep.generated.ts\n"),
+            ("src/keep.generated.ts", ""),
+            ("src/other.generated.ts", ""),
+            ("lib/keep.generated.ts", ""),
+        ]);
+        let base = dir.path();
+        let matcher = get_gitignore_matcher(base);
+
+        assert!(!is_path_ignored(
+            &base.join("src/keep.generated.ts"),
+            &matcher
+        ));
+        assert!(is_path_ignored(
+            &base.join("src/other.generated.ts"),
+            &matcher
+        ));
+        assert!(is_path_ignored(
+            &base.join("lib/keep.generated.ts"),
+            &matcher
+        ));
+    }
+
+    #[test]
+    #[ntest::timeout(10000)]
+    fn nothing_below_an_ignored_directory_is_re_included() {
+        let dir = gitignore_fixture(&[
+            (".gitignore", "dist/\n!dist/keep.ts\n"),
+            ("dist/keep.ts", ""),
+        ]);
+        let base = dir.path();
+        let matcher = get_gitignore_matcher(base);
+
+        assert!(is_path_ignored(&base.join("dist"), &matcher));
+        assert!(is_path_ignored(&base.join("dist/keep.ts"), &matcher));
+    }
+
+    /// Checks the matcher against git itself over a fixture mixing root and
+    /// nested rules, anchoring, negation and directory-only patterns.
+    #[test]
+    #[ntest::timeout(30000)]
+    fn gitignore_matcher_agrees_with_git_check_ignore() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        let init = std::process::Command::new("git")
+            .args(["init", "--quiet"])
+            .current_dir(&base)
+            .status()
+            .expect("git must be installed to run this test");
+        assert!(init.success());
+
+        let files = [
+            (
+                ".gitignore",
+                "node_modules\n*.log\n/build\ncoverage/\n!important.log\n",
+            ),
+            (
+                "apps/web/.gitignore",
+                "/*.local.ts\ngenerated/\n!generated.ts\n",
+            ),
+            (
+                "apps/web/src/generated/.gitignore",
+                "/*\n!.gitignore\n!keep.ts\n",
+            ),
+            ("apps/api/.gitignore", "dist\n"),
+        ];
+        let probes = [
+            "node_modules/x/index.js",
+            "a.log",
+            "important.log",
+            "apps/web/important.log",
+            "build/out.js",
+            "apps/build/out.js",
+            "coverage/lcov.ts",
+            "apps/coverage",
+            "apps/web/env.local.ts",
+            "apps/web/src/env.local.ts",
+            "apps/web/generated/types.ts",
+            "apps/web/generated.ts",
+            "apps/web/src/generated/types.ts",
+            "apps/web/src/generated/keep.ts",
+            "apps/web/src/generated/.gitignore",
+            "apps/web/src/query.ts",
+            "apps/api/dist/server.js",
+            "apps/api/src/dist/server.js",
+            "apps/api/src/query.ts",
+            "packages/lib/dist/index.js",
+            "root.ts",
+        ];
+        for (path, contents) in files {
+            let path = base.join(path);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, contents).unwrap();
+        }
+        for probe in probes {
+            let path = base.join(probe);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            if !path.exists() {
+                std::fs::write(&path, "").unwrap();
+            }
+        }
+
+        let matcher = get_gitignore_matcher(&base);
+        for probe in probes {
+            // Global excludes are the machine's, not the fixture's.
+            let status = std::process::Command::new("git")
+                .args([
+                    "-c",
+                    "core.excludesFile=",
+                    "check-ignore",
+                    "--quiet",
+                    "--no-index",
+                    probe,
+                ])
+                .current_dir(&base)
+                .status()
+                .unwrap();
+            let git_says = status.code() == Some(0);
+            assert_eq!(
+                is_path_ignored(&base.join(probe), &matcher),
+                git_says,
+                "{probe}: git says ignored={git_says}"
+            );
+        }
     }
 
     #[test]

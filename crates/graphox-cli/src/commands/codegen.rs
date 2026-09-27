@@ -167,7 +167,7 @@ pub(crate) enum WatchOutcome {
 pub(crate) fn classify_watch_events(
     events: &[notify_debouncer_mini::DebouncedEvent],
     config: &Config,
-    gitignore: &ignore::gitignore::Gitignore,
+    gitignore: &graphox_core::utils::GitignoreMatcher,
 ) -> WatchOutcome {
     let is_config = |path: &Path| {
         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
@@ -1512,7 +1512,7 @@ mod watch_tests {
         /// fixture from under `config`.
         _dir: tempfile::TempDir,
         config: Config,
-        gitignore: ignore::gitignore::Gitignore,
+        gitignore: utils::GitignoreMatcher,
     }
 
     impl Workspace {
