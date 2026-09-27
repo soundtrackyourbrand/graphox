@@ -2063,6 +2063,63 @@ async fn test_created_output_and_ignored_files_leave_the_file_set_alone() {
     assert!(version() > before, "a new source file does");
 }
 
+/// A schema reload that fails leaves nothing stale for codegen to use: it
+/// reports that the schema does not load instead of generating against the
+/// last one that did.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_codegen_does_not_use_a_schema_that_failed_to_reload() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+    let schema_path = base_dir.join("schema.graphql");
+    fs::write(
+        &schema_path,
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+    fs::create_dir_all(base_dir.join("src")).unwrap();
+    let query_path = base_dir.join("src/query.graphql");
+    fs::write(&query_path, "query GetMe { me { id } }").unwrap();
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+                .with_output_dir("gen".to_string()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false)
+    .with_enable_schema_cache(false);
+
+    let service = setup_lsp_with_scan_complete(config).await;
+    let backend = service.inner();
+    backend.run_codegen().await;
+    assert!(generated_with(&base_dir, "GetMe"));
+    assert!(!generated_with(&base_dir, "name: string"));
+
+    // The query now selects a field the old schema has, and the schema no
+    // longer parses.
+    fs::write(&query_path, "query GetMe { me { id name } }").unwrap();
+    fs::write(&schema_path, "type User { id: ID!").unwrap();
+    let changed = |path: &std::path::Path| FileEvent {
+        uri: graphox::utils::path_to_uri(path).unwrap(),
+        typ: FileChangeType::CHANGED,
+    };
+    graphox_lsp::backend::handlers::document_sync::process_watched_file_batch(
+        backend,
+        vec![changed(&query_path), changed(&schema_path)],
+    )
+    .await;
+    assert!(!backend.schemas.contains_key("schema.graphql"));
+
+    backend.run_codegen().await;
+    assert!(
+        !generated_with(&base_dir, "name: string"),
+        "codegen generated against the schema that no longer loads"
+    );
+}
+
 async fn setup_lsp_with_scan_complete(config: Config) -> LspService<support::LspBackend> {
     let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
     let (scan_done_tx, mut scan_done_rx) = tokio::sync::mpsc::channel(1);
