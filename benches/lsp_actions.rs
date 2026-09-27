@@ -128,6 +128,7 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
             let result = graphox_lsp::backend::codegen_runner::collect_codegen_metadata(
                 &config,
                 &backend.documents,
+                None,
                 &PositionEncodingKind::UTF16,
             );
             std::hint::black_box(result);
