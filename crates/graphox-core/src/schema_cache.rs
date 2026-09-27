@@ -63,6 +63,9 @@ struct CacheMetadata {
 
 /// Cache entry containing the schema text and metadata (disk cache)
 struct CacheEntry {
+    /// The schema files the entry was merged from, in merge order. The file
+    /// name is only a hash, so this is what says which source an entry is for.
+    sources: Vec<String>,
     /// Merged schema text ready for parsing
     merged_schema: String,
     /// Metadata for validation
@@ -204,10 +207,19 @@ fn rename_tmp_into_place(tmp_path: &Path, final_path: &Path) -> io::Result<()> {
     fs::rename(tmp_path, final_path)
 }
 
+/// Leads every entry, so one written in an earlier format is not misread.
+const ENTRY_FORMAT: &[u8; 4] = b"GXS2";
+
 impl CacheEntry {
     /// Manual binary serialization for CacheEntry
     fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::new();
+        bytes.extend_from_slice(ENTRY_FORMAT);
+        bytes.extend_from_slice(&(self.sources.len() as u32).to_le_bytes());
+        for source in &self.sources {
+            bytes.extend_from_slice(&(source.len() as u32).to_le_bytes());
+            bytes.extend_from_slice(source.as_bytes());
+        }
         let schema_bytes = self.merged_schema.as_bytes();
         bytes.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
         bytes.extend_from_slice(schema_bytes);
@@ -217,21 +229,29 @@ impl CacheEntry {
 
     /// Manual binary deserialization for CacheEntry
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        let mut offset = 0;
-        if bytes.len() < 4 {
-            return None;
-        }
-        let schema_len = u32::from_le_bytes(bytes[0..4].try_into().ok()?) as usize;
-        offset += 4;
+        let rest = bytes.strip_prefix(ENTRY_FORMAT.as_slice())?;
+        let mut offset: usize = 0;
+        let mut take = |len: usize| -> Option<&[u8]> {
+            let chunk = rest.get(offset..offset.checked_add(len)?)?;
+            offset += len;
+            Some(chunk)
+        };
+        let read_len = |chunk: &[u8]| -> Option<usize> {
+            Some(u32::from_le_bytes(chunk.try_into().ok()?) as usize)
+        };
 
-        if bytes.len() < offset + schema_len {
-            return None;
+        let count = read_len(take(4)?)?;
+        let mut sources = Vec::with_capacity(count.min(1024));
+        for _ in 0..count {
+            let len = read_len(take(4)?)?;
+            sources.push(String::from_utf8(take(len)?.to_vec()).ok()?);
         }
-        let merged_schema = String::from_utf8(bytes[offset..offset + schema_len].to_vec()).ok()?;
-        offset += schema_len;
+        let schema_len = read_len(take(4)?)?;
+        let merged_schema = String::from_utf8(take(schema_len)?.to_vec()).ok()?;
 
-        let metadata = CacheMetadata::from_bytes_simple(&bytes[offset..])?;
+        let metadata = CacheMetadata::from_bytes_simple(&rest[offset..])?;
         Some(Self {
+            sources,
             merged_schema,
             metadata,
         })
@@ -243,10 +263,16 @@ impl CacheEntry {
 // ============================================================================
 
 // Helper function to generate a unique cache key including the base directory
+/// Identifies a workspace's schema source. Separated by NUL, which no path
+/// contains: the source's own key joins files with commas, which a file name
+/// can contain, so two sources could share it.
 fn make_cache_key(base_dir: &Path, source: &SchemaSource) -> String {
-    let source_key = source.as_key();
-    let base_path = crate::utils::to_posix_path(base_dir);
-    format!("{}:{}", base_path, source_key)
+    let mut key = crate::utils::to_posix_path(base_dir);
+    for file in source.files() {
+        key.push('\0');
+        key.push_str(&file);
+    }
+    key
 }
 
 pub fn try_load_parsed_from_memory(
@@ -449,15 +475,18 @@ pub fn prune_cache_if_due() {
 }
 
 fn get_cache_path(base_dir: &Path, source: &SchemaSource) -> PathBuf {
-    let cache_dir = get_cache_dir();
     let key = make_cache_key(base_dir, source);
-    let hash = {
-        use std::hash::{Hash, Hasher};
-        let mut hasher = ahash::AHasher::default();
-        key.hash(&mut hasher);
-        hasher.finish()
-    };
-    cache_dir.join(format!("schema-{:x}.cache", hash))
+    get_cache_dir().join(format!("schema-{:x}.cache", stable_hash(&key)))
+}
+
+/// A 64-bit FNV-1a hash of `key`. The cache file name has to come out the same
+/// in every process and every build, or no run finds what an earlier one wrote.
+/// The hasher used before was seeded per process, so every CLI run missed and
+/// wrote a new set of files.
+fn stable_hash(key: &str) -> u64 {
+    key.bytes().fold(0xcbf2_9ce4_8422_2325, |hash, byte| {
+        (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<String> {
@@ -487,6 +516,12 @@ pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<Str
         return None;
     }
 
+    // The file name is only a hash. Serve the entry only for the source it was
+    // merged from, in the same order, since the order decides the merged text.
+    if entry.sources != source.files() {
+        return None;
+    }
+
     Some(entry.merged_schema)
 }
 
@@ -499,6 +534,7 @@ pub fn save_to_cache(
     let metadata = CacheMetadata::from_files(base_dir, &files)?;
 
     let entry = CacheEntry {
+        sources: files.clone(),
         merged_schema: merged_schema.to_string(),
         metadata,
     };
@@ -753,6 +789,72 @@ mod tests {
         let dir = tempdir().unwrap();
         let missing = dir.path().join("does-not-exist");
         prune_cache_dir(&missing, Some(Duration::from_secs(1)), Some(1)).unwrap();
+    }
+
+    #[test]
+    fn cache_file_names_do_not_depend_on_the_process() {
+        // The FNV-1a 64 reference vectors. A seeded hasher, as used before,
+        // gives different values in every process and cannot match these.
+        assert_eq!(stable_hash(""), 0xcbf2_9ce4_8422_2325);
+        assert_eq!(stable_hash("a"), 0xaf63_dc4c_8601_ec8c);
+        assert_eq!(stable_hash("foobar"), 0x85944171f73967e8);
+    }
+
+    #[test]
+    #[ntest::timeout(2000)]
+    fn sources_differing_only_in_order_or_separators_do_not_share_an_entry() {
+        let dir = tempfile::tempdir().unwrap();
+        for name in ["a", "a,a"] {
+            fs::write(dir.path().join(name), "type Query { x: Int }").unwrap();
+        }
+        let forward = SchemaSource::Multiple(vec!["a".to_string(), "a,a".to_string()]);
+        let reverse = SchemaSource::Multiple(vec!["a,a".to_string(), "a".to_string()]);
+        assert_eq!(forward.as_key(), reverse.as_key(), "the ambiguity itself");
+        assert_ne!(
+            get_cache_path(dir.path(), &forward),
+            get_cache_path(dir.path(), &reverse)
+        );
+
+        save_to_cache(dir.path(), &forward, "forward").unwrap();
+        // Even under the other's name, an entry is only served for its own source.
+        fs::copy(
+            get_cache_path(dir.path(), &forward),
+            get_cache_path(dir.path(), &reverse),
+        )
+        .unwrap();
+        assert_eq!(try_load_from_cache(dir.path(), &reverse), None);
+        assert_eq!(
+            try_load_from_cache(dir.path(), &forward),
+            Some("forward".to_string())
+        );
+        let _ = fs::remove_file(get_cache_path(dir.path(), &forward));
+        let _ = fs::remove_file(get_cache_path(dir.path(), &reverse));
+    }
+
+    #[test]
+    #[ntest::timeout(2000)]
+    fn an_entry_written_for_another_source_is_not_served() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.graphql"), "type Query { a: Int }").unwrap();
+        fs::write(dir.path().join("b.graphql"), "type Query { b: Int }").unwrap();
+        let a = SchemaSource::Single("a.graphql".to_string());
+        let b = SchemaSource::Single("b.graphql".to_string());
+
+        save_to_cache(dir.path(), &a, "type Query { a: Int }").unwrap();
+        // What a hash collision would leave behind: a's entry under b's name.
+        fs::copy(
+            get_cache_path(dir.path(), &a),
+            get_cache_path(dir.path(), &b),
+        )
+        .unwrap();
+
+        assert_eq!(try_load_from_cache(dir.path(), &b), None);
+        assert_eq!(
+            try_load_from_cache(dir.path(), &a),
+            Some("type Query { a: Int }".to_string())
+        );
+        let _ = fs::remove_file(get_cache_path(dir.path(), &a));
+        let _ = fs::remove_file(get_cache_path(dir.path(), &b));
     }
 
     #[test]
