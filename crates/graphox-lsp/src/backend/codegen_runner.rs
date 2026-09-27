@@ -33,6 +33,32 @@ pub struct CodegenMetadata {
 /// a full-workspace scan each time.
 pub type CodegenMetadataCache = Arc<std::sync::RwLock<Option<(usize, Arc<CodegenMetadata>)>>>;
 
+/// Size and modification time of a file: enough to tell it has not been
+/// rewritten since it was last read.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FileStamp {
+    len: u64,
+    modified: std::time::SystemTime,
+}
+
+impl FileStamp {
+    fn of(path: &Path) -> Option<Self> {
+        let metadata = std::fs::metadata(path).ok()?;
+        Some(Self {
+            len: metadata.len(),
+            modified: metadata.modified().ok()?,
+        })
+    }
+}
+
+/// Files known to hold no GraphQL, with the stamp they had when that was
+/// found. Most files in a project are source files without GraphQL, and
+/// without this every codegen run read each of them from disk again, and
+/// re-parsed those that merely mention `graphql`, such as an import from a
+/// generated types package. A file whose stamp no longer matches is read again,
+/// so the answer holds without relying on file watchers.
+pub type NoGraphqlFiles = Arc<dashmap::DashMap<PathBuf, FileStamp, ahash::RandomState>>;
+
 /// Parses every project file that is not already an in-memory document, so the
 /// generation pass has a `DocumentState` for each. Used on a metadata cache hit,
 /// where the (cached) metadata was built without producing a fresh document cache.
@@ -40,6 +66,7 @@ pub type CodegenMetadataCache = Arc<std::sync::RwLock<Option<(usize, Arc<Codegen
 fn build_run_cache(
     project_files_by_index: &[Vec<PathBuf>],
     documents: &DocumentsMap,
+    no_graphql: Option<&NoGraphqlFiles>,
     position_encoding: &tower_lsp_server::ls_types::PositionEncodingKind,
 ) -> (RunDocumentCache, UnreadableFiles) {
     let mut run_cache = RunDocumentCache::new();
@@ -51,6 +78,7 @@ fn build_run_cache(
                 documents,
                 &mut run_cache,
                 &mut unreadable,
+                no_graphql,
                 position_encoding,
             );
         }
@@ -63,11 +91,14 @@ fn build_run_cache(
 /// mistake a source it failed to read for one that was deleted.
 type UnreadableFiles = ahash::AHashSet<PathBuf>;
 
-fn load_or_parse_document(
+/// The document for `path`: the in-memory one if the server has it, otherwise
+/// parsed from disk. `None` for a file that holds no GraphQL or cannot be read.
+pub(crate) fn load_or_parse_document(
     path: &Path,
     documents: &DocumentsMap,
     run_cache: &mut RunDocumentCache,
     unreadable: &mut UnreadableFiles,
+    no_graphql: Option<&NoGraphqlFiles>,
     position_encoding: &tower_lsp_server::ls_types::PositionEncodingKind,
 ) -> Option<Arc<graphox_core::DocumentState>> {
     let uri = graphox_core::utils::path_to_uri(path)?;
@@ -80,6 +111,20 @@ fn load_or_parse_document(
         return Some(doc.clone());
     }
 
+    // Stamped before reading, so a write that lands during the read leaves a
+    // stamp that no longer matches and the file is read again next run.
+    let stamp = no_graphql.and_then(|_| FileStamp::of(path));
+    if let (Some(known), Some(stamp)) = (no_graphql, stamp)
+        && known.get(path).is_some_and(|known| *known == stamp)
+    {
+        return None;
+    }
+    let remember_no_graphql = || {
+        if let (Some(known), Some(stamp)) = (no_graphql, stamp) {
+            known.insert(path.to_path_buf(), stamp);
+        }
+    };
+
     let content = match std::fs::read_to_string(path) {
         Ok(content) => content,
         Err(_) => {
@@ -91,6 +136,7 @@ fn load_or_parse_document(
         }
     };
     if graphox_core::utils::has_generated_header(&content) {
+        remember_no_graphql();
         return None;
     }
 
@@ -103,6 +149,7 @@ fn load_or_parse_document(
         let has_gql = bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
             || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"));
         if !has_gql {
+            remember_no_graphql();
             return None;
         }
     }
@@ -112,6 +159,12 @@ fn load_or_parse_document(
         &content,
         position_encoding.clone(),
     ));
+    // Generation skips a document without GraphQL either way; answering `None`
+    // lets that be remembered instead of parsed again.
+    if doc.get_graphql_trees().is_empty() {
+        remember_no_graphql();
+        return None;
+    }
     run_cache.insert(uri, doc.clone());
     Some(doc)
 }
@@ -132,6 +185,7 @@ fn get_document_for_codegen(
 pub fn collect_codegen_metadata(
     config: &Config,
     documents: &DocumentsMap,
+    no_graphql: Option<&NoGraphqlFiles>,
     position_encoding: &tower_lsp_server::ls_types::PositionEncodingKind,
 ) -> (
     Vec<graphox_core::engine::FragmentMetadata>,
@@ -160,6 +214,7 @@ pub fn collect_codegen_metadata(
                 documents,
                 &mut run_cache,
                 &mut unreadable,
+                no_graphql,
                 position_encoding,
             ) else {
                 continue;
@@ -207,6 +262,7 @@ pub async fn run_codegen(
     projects_to_run: Option<HashSet<String>>,
     position_encoding: tower_lsp_server::ls_types::PositionEncodingKind,
     metadata_cache: Option<(usize, CodegenMetadataCache)>,
+    no_graphql: Option<NoGraphqlFiles>,
 ) {
     // Create progress reporter
     let progress = super::progress::ProgressReporter::new(
@@ -237,12 +293,13 @@ pub async fn run_codegen(
         let (run_cache, unreadable) = build_run_cache(
             &metadata.project_files_by_index,
             &documents,
+            no_graphql.as_ref(),
             &position_encoding,
         );
         (metadata, run_cache, unreadable)
     } else {
         let (global_metadata, project_files_by_index, run_cache, unreadable) =
-            collect_codegen_metadata(&config, &documents, &position_encoding);
+            collect_codegen_metadata(&config, &documents, no_graphql.as_ref(), &position_encoding);
         let metadata = Arc::new(CodegenMetadata {
             global_metadata,
             project_files_by_index,
@@ -873,4 +930,105 @@ pub async fn run_codegen(
             total_projects
         )))
         .await;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tower_lsp_server::ls_types::PositionEncodingKind;
+
+    struct Lookup {
+        documents: DocumentsMap,
+        no_graphql: NoGraphqlFiles,
+    }
+
+    impl Lookup {
+        fn new() -> Self {
+            Self {
+                documents: Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default())),
+                no_graphql: Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default())),
+            }
+        }
+
+        /// One run's lookup, returning the document and whether the file
+        /// counted as unreadable.
+        fn load(&self, path: &Path) -> (Option<Arc<graphox_core::DocumentState>>, bool) {
+            let mut run_cache = RunDocumentCache::new();
+            let mut unreadable = UnreadableFiles::default();
+            let doc = load_or_parse_document(
+                path,
+                &self.documents,
+                &mut run_cache,
+                &mut unreadable,
+                Some(&self.no_graphql),
+                &PositionEncodingKind::UTF16,
+            );
+            (doc, unreadable.contains(path))
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unchanged_file_without_graphql_is_not_read_again() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("util.ts");
+        std::fs::write(&path, "export const one = 1;\n").unwrap();
+        let lookup = Lookup::new();
+
+        assert!(lookup.load(&path).0.is_none());
+        assert!(lookup.no_graphql.contains_key(&path));
+
+        // Unreadable now, but its size and modification time are unchanged, so
+        // a lookup that went back to the disk would report the read failure.
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let (doc, unreadable) = lookup.load(&path);
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(doc.is_none());
+        assert!(!unreadable, "the file was read again");
+    }
+
+    #[test]
+    fn a_file_that_changes_is_read_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("util.ts");
+        std::fs::write(&path, "export const one = 1;\n").unwrap();
+        let lookup = Lookup::new();
+        assert!(lookup.load(&path).0.is_none());
+
+        std::fs::write(
+            &path,
+            "import { gql } from '@apollo/client';\nexport const F = gql`fragment F on User { id }`;\n",
+        )
+        .unwrap();
+        let doc = lookup.load(&path).0.expect("the new GraphQL is found");
+        assert_eq!(doc.fragments.len(), 1);
+    }
+
+    #[test]
+    fn a_file_that_only_mentions_graphql_is_remembered() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("component.tsx");
+        std::fs::write(
+            &path,
+            "import type { Record } from '@acme/graphql-schema/types';\nexport const x = 1;\n",
+        )
+        .unwrap();
+        let lookup = Lookup::new();
+
+        assert!(lookup.load(&path).0.is_none());
+        assert!(lookup.no_graphql.contains_key(&path));
+    }
+
+    #[test]
+    fn files_with_graphql_are_not_remembered_as_without() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("query.graphql");
+        std::fs::write(&path, "query Q { me { id } }").unwrap();
+        let lookup = Lookup::new();
+
+        assert!(lookup.load(&path).0.is_some());
+        assert!(!lookup.no_graphql.contains_key(&path));
+        assert!(lookup.load(&path).0.is_some());
+    }
 }

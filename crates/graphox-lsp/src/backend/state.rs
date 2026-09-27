@@ -112,6 +112,9 @@ pub struct Backend {
     /// keyed by workspace version, so back-to-back codegen runs for operation-body
     /// edits don't redo a full-workspace scan. See [`super::codegen_runner::CodegenMetadataCache`].
     pub codegen_metadata_cache: super::codegen_runner::CodegenMetadataCache,
+    /// Files codegen found without GraphQL, so later runs skip reading them
+    /// while they are unchanged. See [`super::codegen_runner::NoGraphqlFiles`].
+    pub codegen_no_graphql_files: super::codegen_runner::NoGraphqlFiles,
     /// Global cache for all fragments in the workspace
     pub fragment_metadata_cache: Arc<std::sync::RwLock<Option<Arc<Vec<FragmentCompletionInfo>>>>>,
     /// Reuse cache for the no-SLO fragment list built during validation, keyed by
@@ -233,6 +236,8 @@ impl Backend {
             );
 
             let codegen_metadata_cache = Arc::new(std::sync::RwLock::new(None));
+            let codegen_no_graphql_files =
+                Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default()));
 
             Self {
                 client,
@@ -261,6 +266,7 @@ impl Backend {
                 codegen_throttle,
                 watched_files_debouncer,
                 codegen_metadata_cache,
+                codegen_no_graphql_files,
                 fragment_metadata_cache,
                 validation_fragment_cache,
                 configured_document_uris_cache,
@@ -676,6 +682,7 @@ impl Backend {
         if let Ok(mut cache) = self.codegen_metadata_cache.write() {
             *cache = None;
         }
+        self.codegen_no_graphql_files.clear();
 
         // Clear globset cache in config
         graphox_core::config::clear_globset_cache();
@@ -863,6 +870,7 @@ impl Backend {
                 self.workspace_version.load(Ordering::SeqCst),
                 self.codegen_metadata_cache.clone(),
             )),
+            Some(self.codegen_no_graphql_files.clone()),
         )
         .await;
     }
@@ -881,6 +889,7 @@ impl Backend {
         if let Ok(mut cache) = self.codegen_metadata_cache.write() {
             *cache = None;
         }
+        self.codegen_no_graphql_files.clear();
 
         // Clear globset cache in config
         graphox_core::config::clear_globset_cache();
