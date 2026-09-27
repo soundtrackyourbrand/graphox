@@ -71,6 +71,10 @@ pub async fn handle_did_open(backend: &Backend, params: DidOpenTextDocumentParam
     });
 
     let old_metadata = backend.metadata.insert(uri.clone(), metadata);
+    if old_metadata.is_none() {
+        // The server has not seen this file before, so it may be new on disk.
+        backend.note_file_set_changed();
+    }
 
     let old_spreads = old_metadata.as_ref().map(|m| m.fragment_spreads.clone());
     let old_fragment_names: Option<Arc<[Arc<str>]>> = old_metadata.as_ref().map(|m| {
@@ -308,6 +312,7 @@ pub async fn handle_did_close(backend: &Backend, params: DidCloseTextDocumentPar
     let mut removed_from_workspace = false;
 
     if missing_on_disk {
+        backend.note_file_set_changed();
         let config = backend.config.read().unwrap().clone();
         let change_params = file_change_handler::FileChangeParams {
             client: &backend.client,
@@ -395,6 +400,27 @@ pub async fn handle_did_change_watched_files(
     }
 }
 
+/// Whether a file created or deleted at `path` can change the files a project
+/// holds. Codegen writes its own output on every run, and some watchers report
+/// those writes as creations; counting them would make every run walk the
+/// projects again. A path without an extension still counts: deleting a
+/// directory arrives as a single event for the directory. A path that no
+/// longer exists cannot be resolved against the workspace's canonical paths,
+/// so it counts: an extra walk is cheap, a missed file is not.
+fn may_change_project_files(
+    backend: &Backend,
+    path: &std::path::Path,
+    config: &graphox_core::Config,
+) -> bool {
+    let Ok(path) = std::fs::canonicalize(path) else {
+        return true;
+    };
+    let path = path.as_path();
+    (graphox_core::utils::is_relevant_file(path) || path.extension().is_none())
+        && !config.is_output_file(path)
+        && !graphox_core::utils::is_path_ignored(path, &backend.gitignore)
+}
+
 /// Processes a coalesced batch of watched-file changes (schema and ordinary files;
 /// config files are handled inline by [`handle_did_change_watched_files`]).
 ///
@@ -404,6 +430,17 @@ pub async fn handle_did_change_watched_files(
 pub async fn process_watched_file_batch(backend: &Backend, changes: Vec<FileEvent>) {
     if changes.is_empty() {
         return;
+    }
+
+    {
+        let config = backend.config.read().unwrap().clone();
+        if changes.iter().any(|change| {
+            (change.typ == FileChangeType::CREATED || change.typ == FileChangeType::DELETED)
+                && graphox_core::utils::uri_to_path(&backend.normalize_uri(change.uri.clone()))
+                    .is_some_and(|path| may_change_project_files(backend, &path, &config))
+        }) {
+            backend.note_file_set_changed();
+        }
     }
 
     let config = backend.config.read().unwrap().clone();

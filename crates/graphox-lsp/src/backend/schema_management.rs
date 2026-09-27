@@ -112,6 +112,11 @@ pub async fn reload_schema(
                 reloaded_keys.push(key);
             }
             None => {
+                // The schema held so far no longer matches its files. Keeping it
+                // would let codegen generate against it rather than report that
+                // the schema does not load. Validation keeps its last valid
+                // schema, which `validated_schemas` still holds.
+                schemas.remove(&key);
                 client
                     .log_message(
                         MessageType::ERROR,

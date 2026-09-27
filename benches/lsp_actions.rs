@@ -129,6 +129,7 @@ pub fn bench_lsp_actions(c: &mut Criterion) {
                 &config,
                 &backend.documents,
                 None,
+                None,
                 &PositionEncodingKind::UTF16,
             );
             std::hint::black_box(result);
