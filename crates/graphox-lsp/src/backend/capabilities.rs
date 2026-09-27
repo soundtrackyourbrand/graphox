@@ -9,6 +9,10 @@ pub struct ClientCapabilities {
     pub supports_progress: bool,
     pub supports_semantic_tokens: bool,
     pub supports_inlay_hints: bool,
+    /// The client lets the server register file watchers.
+    pub supports_watched_files_registration: bool,
+    /// Those watchers may use relative patterns.
+    pub supports_relative_watch_patterns: bool,
     pub position_encodings: Option<Vec<PositionEncodingKind>>,
 }
 
@@ -27,6 +31,12 @@ impl ClientCapabilities {
         if let Some(workspace) = &client_caps.workspace {
             caps.supports_workspace_folders = workspace.workspace_folders.unwrap_or(false);
             caps.supports_configuration = workspace.configuration.unwrap_or(false);
+            if let Some(watched) = &workspace.did_change_watched_files {
+                caps.supports_watched_files_registration =
+                    watched.dynamic_registration.unwrap_or(false);
+                caps.supports_relative_watch_patterns =
+                    watched.relative_pattern_support.unwrap_or(false);
+            }
         }
 
         // Check for progress support

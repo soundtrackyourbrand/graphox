@@ -487,6 +487,15 @@ pub fn is_relevant_file(path: &Path) -> bool {
     })()
 }
 
+/// Whether host-language source could embed GraphQL. Every way of embedding
+/// it (`gql` and `graphql` tags, `/* GraphQL */` comments) contains one of the
+/// two markers, so a file without either needs no parse.
+pub fn may_contain_graphql(content: &str) -> bool {
+    let bytes = content.as_bytes();
+    bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
+        || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"))
+}
+
 pub fn has_generated_header(content: &str) -> bool {
     content.starts_with("// @generated")
         || content.starts_with("/* @generated */")

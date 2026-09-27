@@ -1,84 +1,134 @@
 //! File watcher registration for LSP
 //!
-//! This module handles registering file system watchers with the LSP client
-//! to monitor changes to schema files and workspace GraphQL files.
+//! The server asks the client to watch the config file, the schema files and,
+//! unless `watch_all_files` is off, every file that can hold GraphQL. Changes
+//! made outside the editor (a checkout, a pull, a rebase, a codegen run from a
+//! terminal) reach the server only through these watchers.
 
 use ahash::AHashSet;
 use graphox_core::Config;
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types::*;
 
-/// Registers file watchers for schema files, workspace files, and config file
+use super::capabilities::ClientCapabilities;
+
+const REGISTRATION_ID: &str = "watch-files";
+const WATCHED_FILES_METHOD: &str = "workspace/didChangeWatchedFiles";
+
+/// Builds the watchers for `config`.
 ///
-/// This function extracts the file watcher registration logic from Backend::initialized().
-/// It runs in a separate tokio task to avoid blocking if the client doesn't respond immediately.
-pub fn register_file_watchers(client: Client, config: &Config) {
+/// Schema paths in the config are relative to its directory, but clients match
+/// a plain glob string against absolute paths, so a relative string would
+/// never fire. They are sent as relative patterns where the client supports
+/// them, and as absolute paths otherwise.
+pub fn build_file_watchers(config: &Config, relative_patterns: bool) -> Vec<FileSystemWatcher> {
+    let base_dir = config.base_dir();
+    let watch = |glob_pattern| FileSystemWatcher {
+        glob_pattern,
+        kind: Some(WatchKind::all()),
+    };
     let mut watchers = Vec::new();
+
+    if let Some(config_file) = ["graphox.yaml", "graphox.yml"]
+        .iter()
+        .map(|name| base_dir.join(name))
+        .find(|path| path.exists())
+    {
+        watchers.push(watch(GlobPattern::String(
+            config_file.to_string_lossy().into_owned(),
+        )));
+    }
+
     let mut schema_files = AHashSet::default();
-
-    // Watch the config file itself (graphox.yaml or graphox.yml)
-    let config_yaml = config.base_dir().join("graphox.yaml");
-    let config_yml = config.base_dir().join("graphox.yml");
-
-    if config_yaml.exists() {
-        watchers.push(FileSystemWatcher {
-            glob_pattern: GlobPattern::String(config_yaml.to_string_lossy().to_string()),
-            kind: Some(WatchKind::all()),
-        });
-    } else if config_yml.exists() {
-        watchers.push(FileSystemWatcher {
-            glob_pattern: GlobPattern::String(config_yml.to_string_lossy().to_string()),
-            kind: Some(WatchKind::all()),
-        });
-    }
-
-    // Collect all schema files from projects
-    for project in config.projects() {
-        for file in project.schema().files() {
-            schema_files.insert(file);
+    let mut ordered = Vec::new();
+    let schema_sources = config
+        .projects()
+        .iter()
+        .map(|p| p.schema())
+        .chain(config.schema_types().iter().map(|st| st.schema()));
+    for schema in schema_sources {
+        for file in schema.files() {
+            if schema_files.insert(file.clone()) {
+                ordered.push(file);
+            }
         }
     }
-
-    // Collect schema files from schema_types
-    for st in config.schema_types() {
-        for file in st.schema().files() {
-            schema_files.insert(file);
-        }
+    let base_uri = graphox_core::utils::path_to_uri(base_dir);
+    for file in ordered {
+        let pattern = match (&base_uri, relative_patterns) {
+            (Some(base_uri), true) => GlobPattern::Relative(RelativePattern {
+                base_uri: OneOf::Right(base_uri.clone()),
+                pattern: file,
+            }),
+            _ => GlobPattern::String(base_dir.join(file).to_string_lossy().into_owned()),
+        };
+        watchers.push(watch(pattern));
     }
 
-    // Create watchers for schema files
-    for file in schema_files {
-        watchers.push(FileSystemWatcher {
-            glob_pattern: GlobPattern::String(file),
-            kind: Some(WatchKind::all()),
-        });
-    }
-
-    // If configured, watch all relevant files in the workspace
     if config.watch_all_files() {
-        watchers.push(FileSystemWatcher {
-            glob_pattern: GlobPattern::String(
-                "**/*.{graphql,gql,ts,tsx,mts,cts,js,jsx,mjs,cjs}".to_string(),
-            ),
-            kind: Some(WatchKind::all()),
-        });
+        watchers.push(watch(GlobPattern::String(
+            "**/*.{graphql,gql,ts,tsx,mts,cts,js,jsx,mjs,cjs}".to_string(),
+        )));
     }
 
-    // Register the watchers with the client
-    let registration = Registration {
-        id: "watch-files".to_string(),
-        method: "workspace/didChangeWatchedFiles".to_string(),
+    watchers
+}
+
+/// The watcher registration for `config`, or `None` for a client that cannot
+/// register watchers dynamically: the protocol forbids registering a
+/// capability the client did not offer to let the server register.
+pub fn watcher_registration(
+    config: &Config,
+    capabilities: &ClientCapabilities,
+) -> Option<Registration> {
+    if !capabilities.supports_watched_files_registration {
+        return None;
+    }
+    let watchers = build_file_watchers(config, capabilities.supports_relative_watch_patterns);
+    Some(Registration {
+        id: REGISTRATION_ID.to_string(),
+        method: WATCHED_FILES_METHOD.to_string(),
         register_options: Some(
             serde_json::to_value(DidChangeWatchedFilesRegistrationOptions { watchers }).unwrap(),
         ),
+    })
+}
+
+/// Registers the watchers for `config`, first dropping the previous
+/// registration when `replace` is set, as after a config reload.
+///
+/// Runs in its own task because the client answers asynchronously and a
+/// request handler must not wait on it.
+pub fn register_file_watchers(
+    client: Client,
+    config: &Config,
+    capabilities: &ClientCapabilities,
+    replace: bool,
+) {
+    let Some(registration) = watcher_registration(config, capabilities) else {
+        return;
     };
 
     tokio::spawn(async move {
+        if replace {
+            let unregistration = Unregistration {
+                id: REGISTRATION_ID.to_string(),
+                method: WATCHED_FILES_METHOD.to_string(),
+            };
+            if let Err(e) = client.unregister_capability(vec![unregistration]).await {
+                client
+                    .log_message(
+                        MessageType::WARNING,
+                        format!("Failed to unregister file watchers: {e}"),
+                    )
+                    .await;
+            }
+        }
         if let Err(e) = client.register_capability(vec![registration]).await {
             client
                 .log_message(
                     MessageType::ERROR,
-                    format!("Failed to register schema watcher: {}", e),
+                    format!("Failed to register file watchers: {e}"),
                 )
                 .await;
         }

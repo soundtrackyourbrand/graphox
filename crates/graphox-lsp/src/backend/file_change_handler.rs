@@ -91,6 +91,16 @@ pub async fn process_file_created_or_changed(
         return None;
     }
 
+    // A checkout rewrites mostly host files without GraphQL; skip their parse,
+    // as the workspace scan does. One that held GraphQL before still leaves the
+    // indices through the deletion path.
+    if !is_schema
+        && graphox_core::document::DocumentLanguage::from_uri(&uri).is_host_language()
+        && !graphox_core::utils::may_contain_graphql(&content)
+    {
+        return process_file_deleted(uri, params, |u| u);
+    }
+
     let new_doc = DocumentState::new_from_thread_local(
         uri.clone(),
         &content,
@@ -239,6 +249,14 @@ pub fn process_file_deleted(
     if !graphox_core::utils::is_relevant_file(&path)
         || graphox_core::utils::is_path_ignored(&path, params.gitignore)
     {
+        return None;
+    }
+
+    // A file the server never indexed contributed nothing, so removing it
+    // changes nothing. Reporting a change anyway would bump the workspace epoch
+    // and refresh every client's diagnostics for each such file in a checkout.
+    if !params.metadata.contains_key(&uri) && !params.documents.contains_key(&uri) {
+        params.diagnostic_cache.remove(&uri);
         return None;
     }
 

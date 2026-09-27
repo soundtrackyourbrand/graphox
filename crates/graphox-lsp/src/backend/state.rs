@@ -923,6 +923,16 @@ impl Backend {
         // Update the config
         *self.config.write().unwrap() = new_config.clone();
 
+        // The schema files and `watch_all_files` may have changed.
+        if let Ok(caps) = self.client_capabilities.read() {
+            super::file_watchers::register_file_watchers(
+                self.client.clone(),
+                &new_config,
+                &caps,
+                true,
+            );
+        }
+
         // Cancel any active scan and reset workspace loaded state
         {
             let mut cancelled_lock = self.workspace_scan_cancelled.write().unwrap();

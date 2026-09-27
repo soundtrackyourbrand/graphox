@@ -69,16 +69,21 @@ impl LanguageServer for GraphoxLanguageServer {
 
         let config = self.config.read().unwrap().clone();
 
-        let (supports_progress, position_encoding, supports_pull_diagnostics) =
-            if let Ok(caps) = self.client_capabilities.read() {
-                (
-                    caps.supports_progress,
-                    caps.negotiated_encoding(),
-                    caps.supports_pull_diagnostics,
-                )
-            } else {
-                (false, PositionEncodingKind::UTF16, false)
-            };
+        let capabilities = self
+            .client_capabilities
+            .read()
+            .map(|caps| caps.clone())
+            .unwrap_or_default();
+        let supports_progress = capabilities.supports_progress;
+        let position_encoding = capabilities.negotiated_encoding();
+        let supports_pull_diagnostics = capabilities.supports_pull_diagnostics;
+
+        super::file_watchers::register_file_watchers(
+            self.client.clone(),
+            &config,
+            &capabilities,
+            false,
+        );
 
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),
