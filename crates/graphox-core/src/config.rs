@@ -1655,6 +1655,10 @@ pub struct Config {
     /// computed once. Avoids re-`canonicalize`ing schema files for every workspace
     /// document during validation.
     canonical_schema_paths: Arc<OnceLock<Vec<PathBuf>>>,
+    /// Whether a document path resolves to a schema file, per path. The answer
+    /// needs the path canonicalized, and it is asked for every workspace
+    /// document on every validation pass.
+    schema_path_cache: Arc<DashMap<PathBuf, bool>>,
 }
 
 impl Default for Config {
@@ -1687,6 +1691,7 @@ impl Clone for Config {
             output_file_cache: self.output_file_cache.clone(),
             resolved_output_paths: self.resolved_output_paths.clone(),
             canonical_schema_paths: self.canonical_schema_paths.clone(),
+            schema_path_cache: self.schema_path_cache.clone(),
         }
     }
 }
@@ -1699,6 +1704,7 @@ impl Config {
         )));
         self.resolved_output_paths = Arc::new(OnceLock::new());
         self.canonical_schema_paths = Arc::new(OnceLock::new());
+        self.schema_path_cache = Arc::new(DashMap::new());
     }
 
     pub fn with_base_dir(mut self, base_dir: PathBuf) -> Self {
@@ -1830,6 +1836,22 @@ impl Config {
     /// projects and `schema_types`), computed once and cached for the lifetime of
     /// this `Config` (and its clones). Used to detect whether a document path is in
     /// fact a schema file without re-`canonicalize`ing the schema set per document.
+    /// Whether `path` is one of the configured schema files, following
+    /// symlinks. Memoized per path, like project matching: a path's
+    /// canonical form is assumed not to change while the config is live.
+    pub fn is_schema_path(&self, path: &Path) -> bool {
+        if let Some(cached) = self.schema_path_cache.get(path) {
+            return *cached;
+        }
+        let canonical = fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf());
+        let is_schema = self
+            .canonical_schema_paths()
+            .iter()
+            .any(|schema| crate::utils::paths_match(Some(&canonical), Some(schema)));
+        self.schema_path_cache.insert(path.to_path_buf(), is_schema);
+        is_schema
+    }
+
     pub fn canonical_schema_paths(&self) -> &[PathBuf] {
         self.canonical_schema_paths.get_or_init(|| {
             let mut paths: Vec<PathBuf> = Vec::new();
@@ -2327,6 +2349,7 @@ impl Config {
             ))),
             resolved_output_paths: Arc::new(OnceLock::new()),
             canonical_schema_paths: Arc::new(OnceLock::new()),
+            schema_path_cache: Arc::new(DashMap::new()),
         }
     }
 
@@ -2728,5 +2751,59 @@ mod tests {
             &updated.canonical_schema_paths
         ));
         assert!(updated.canonical_schema_paths().is_empty());
+    }
+
+    fn schema_config(base: &Path) -> Config {
+        Config::new_test(
+            base.to_path_buf(),
+            vec![
+                ProjectConfig::default()
+                    .with_schema(SchemaSource::Single("schema/schema.graphqls".to_string()))
+                    .with_include(GlobPattern::Single("src/**/*.graphql".to_string())),
+            ],
+        )
+    }
+
+    #[test]
+    fn is_schema_path_recognises_schema_files_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        fs::create_dir_all(base.join("schema")).unwrap();
+        fs::create_dir_all(base.join("src")).unwrap();
+        fs::write(base.join("schema/schema.graphqls"), "type Query { a: Int }").unwrap();
+        fs::write(base.join("src/q.graphql"), "query Q { a }").unwrap();
+        let config = schema_config(&base);
+
+        assert!(config.is_schema_path(&base.join("schema/schema.graphqls")));
+        assert!(!config.is_schema_path(&base.join("src/q.graphql")));
+        assert!(!config.is_schema_path(&base.join("src/missing.graphql")));
+        // Asked twice, the memoized answer is the same.
+        assert!(config.is_schema_path(&base.join("schema/schema.graphqls")));
+        assert!(!config.is_schema_path(&base.join("src/q.graphql")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn is_schema_path_follows_symlinks_once_per_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        fs::create_dir_all(base.join("schema")).unwrap();
+        fs::write(base.join("schema/schema.graphqls"), "type Query { a: Int }").unwrap();
+        std::os::unix::fs::symlink(base.join("schema"), base.join("linked")).unwrap();
+        let config = schema_config(&base);
+        let through_link = base.join("linked/schema.graphqls");
+
+        assert!(config.is_schema_path(&through_link));
+
+        // With the link gone the path no longer resolves, so a second answer of
+        // true shows the lookup did not go back to the filesystem.
+        fs::remove_file(base.join("linked")).unwrap();
+        assert!(config.is_schema_path(&through_link));
+        // A clone shares the memo, as request-scoped config snapshots do.
+        assert!(config.clone().is_schema_path(&through_link));
+
+        // Changing the projects starts a fresh memo.
+        let reconfigured = config.with_projects(schema_config(&base).projects().to_vec());
+        assert!(!reconfigured.is_schema_path(&through_link));
     }
 }
