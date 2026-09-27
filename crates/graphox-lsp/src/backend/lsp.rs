@@ -78,12 +78,8 @@ impl LanguageServer for GraphoxLanguageServer {
         let position_encoding = capabilities.negotiated_encoding();
         let supports_pull_diagnostics = capabilities.supports_pull_diagnostics;
 
-        super::file_watchers::register_file_watchers(
-            self.client.clone(),
-            &config,
-            &capabilities,
-            false,
-        );
+        self.watcher_registrar
+            .register(self.client.clone(), &config, &capabilities);
 
         super::workspace_scan::spawn_workspace_scan(super::workspace_scan::WorkspaceScanParams {
             client: self.client.clone(),

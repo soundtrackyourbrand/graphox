@@ -25,20 +25,48 @@ const ALL_FILES_GLOB: &str = "**/*.{graphql,gql,ts,tsx,mts,cts,js,jsx,mjs,cjs}";
 /// A service whose client answers every server request with `null`, as an
 /// editor does, and reports each request's method and params.
 fn answering_service(config: Config) -> (LspService<LspBackend>, mpsc::UnboundedReceiver<Value>) {
+    answering_service_holding_first_registration(config, None)
+}
+
+/// Like [`answering_service`], but the answer to the first
+/// `client/registerCapability` waits for `release`, as a slow client's would.
+fn answering_service_holding_first_registration(
+    config: Config,
+    release: Option<tokio::sync::oneshot::Receiver<()>>,
+) -> (LspService<LspBackend>, mpsc::UnboundedReceiver<Value>) {
     let (service, socket) =
         LspService::new(|client| graphox::GraphoxLanguageServer::new(Backend::new(client, config)));
     let (mut requests, mut responses) = socket.split();
     let (tx, rx) = mpsc::unbounded_channel();
+    let (answer_tx, mut answers) = mpsc::unbounded_channel::<Response>();
     tokio::spawn(async move {
+        while let Some(answer) = answers.recv().await {
+            let _ = responses.send(answer).await;
+        }
+    });
+    tokio::spawn(async move {
+        let mut release = release;
         while let Some(request) = requests.next().await {
             let _ = tx.send(json!({
                 "method": request.method(),
                 "params": request.params().cloned(),
             }));
-            if let Some(id) = request.id() {
-                let _ = responses
-                    .send(Response::from_ok(id.clone(), Value::Null))
-                    .await;
+            let Some(id) = request.id().cloned() else {
+                continue;
+            };
+            let answer = Response::from_ok(id, Value::Null);
+            match release.take() {
+                Some(release) if request.method() == "client/registerCapability" => {
+                    let answer_tx = answer_tx.clone();
+                    tokio::spawn(async move {
+                        let _ = release.await;
+                        let _ = answer_tx.send(answer);
+                    });
+                }
+                other => {
+                    release = other;
+                    let _ = answer_tx.send(answer);
+                }
             }
         }
     });
@@ -136,6 +164,10 @@ async fn registers_config_schema_and_document_watchers() {
             watcher(GlobPattern::String(
                 base.join("graphox.yaml").to_string_lossy().into_owned()
             )),
+            // Watched even though it does not exist, so creating it is seen.
+            watcher(GlobPattern::String(
+                base.join("graphox.yml").to_string_lossy().into_owned()
+            )),
             // A relative string glob would be matched against absolute paths
             // and never fire, so the schema is anchored at the workspace.
             watcher(GlobPattern::Relative(RelativePattern {
@@ -202,6 +234,66 @@ async fn config_reload_replaces_the_registration() {
     assert_eq!(patterns, vec!["other/schema.graphqls".to_string()]);
 }
 
+async fn change_config(service: &mut LspService<LspBackend>, base: &Path, schema: &str) {
+    write_workspace(base, schema);
+    let config_uri = graphox::utils::path_to_uri(base.join("graphox.yaml")).unwrap();
+    service
+        .call(
+            Request::build("workspace/didChangeWatchedFiles")
+                .params(json!({ "changes": [{ "uri": config_uri, "type": 2 }] }))
+                .finish(),
+        )
+        .await
+        .unwrap();
+}
+
+fn schema_patterns(params: &Value) -> Vec<String> {
+    registered_watchers(params)
+        .into_iter()
+        .filter_map(|w| match w.glob_pattern {
+            GlobPattern::Relative(r) => Some(r.pattern),
+            GlobPattern::String(_) => None,
+        })
+        .collect()
+}
+
+/// Two reloads while the client is still answering an earlier registration:
+/// the registrations are applied in order, and the superseded one is skipped,
+/// so the client ends up watching the newest config's schema.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn reloads_while_a_registration_is_pending_leave_the_newest_registered() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = dir.path().canonicalize().unwrap();
+    write_workspace(&base, "first/schema.graphqls");
+    let config = Config::load_from_dir(&base).unwrap().unwrap();
+
+    let (release, released) = tokio::sync::oneshot::channel();
+    let (mut service, mut rx) =
+        answering_service_holding_first_registration(config, Some(released));
+    initialize(&mut service, watching_client(true)).await;
+    let (first, _) = next_request(&mut rx, "client/registerCapability").await;
+    assert_eq!(
+        schema_patterns(&first),
+        vec!["first/schema.graphqls".to_string()]
+    );
+
+    change_config(&mut service, &base, "second/schema.graphqls").await;
+    change_config(&mut service, &base, "third/schema.graphqls").await;
+    release.send(()).unwrap();
+
+    let (unregister, _) = next_request(&mut rx, "client/unregisterCapability").await;
+    assert_eq!(unregister["unregisterations"][0]["id"], "watch-files");
+    let (params, before) = next_request(&mut rx, "client/registerCapability").await;
+    assert!(
+        !before.iter().any(|m| m == "client/registerCapability"),
+        "only one registration after the release: {before:?}"
+    );
+    assert_eq!(
+        schema_patterns(&params),
+        vec!["third/schema.graphqls".to_string()]
+    );
+}
+
 #[test]
 fn registration_needs_the_client_to_allow_it() {
     let dir = tempfile::tempdir().unwrap();
@@ -229,7 +321,8 @@ fn watch_all_files_off_leaves_only_config_and_schema_watchers() {
         .with_watch_all_files(false);
 
     let watchers = graphox_lsp::backend::file_watchers::build_file_watchers(&config, true);
-    assert_eq!(watchers.len(), 2, "{watchers:?}");
+    // Both config file names and the schema.
+    assert_eq!(watchers.len(), 3, "{watchers:?}");
     assert!(
         !watchers
             .iter()

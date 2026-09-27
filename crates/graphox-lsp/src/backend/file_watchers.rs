@@ -7,6 +7,8 @@
 
 use ahash::AHashSet;
 use graphox_core::Config;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use tower_lsp_server::Client;
 use tower_lsp_server::ls_types::*;
 
@@ -29,13 +31,12 @@ pub fn build_file_watchers(config: &Config, relative_patterns: bool) -> Vec<File
     };
     let mut watchers = Vec::new();
 
-    if let Some(config_file) = ["graphox.yaml", "graphox.yml"]
-        .iter()
-        .map(|name| base_dir.join(name))
-        .find(|path| path.exists())
-    {
+    // Both names, whichever exists: creating the preferred `graphox.yaml` next
+    // to a `graphox.yml` switches the config, and only a watcher on the new
+    // file reports that.
+    for name in ["graphox.yaml", "graphox.yml"] {
         watchers.push(watch(GlobPattern::String(
-            config_file.to_string_lossy().into_owned(),
+            base_dir.join(name).to_string_lossy().into_owned(),
         )));
     }
 
@@ -94,43 +95,66 @@ pub fn watcher_registration(
     })
 }
 
-/// Registers the watchers for `config`, first dropping the previous
-/// registration when `replace` is set, as after a config reload.
+/// Registers the watchers with the client, one registration at a time.
 ///
-/// Runs in its own task because the client answers asynchronously and a
-/// request handler must not wait on it.
-pub fn register_file_watchers(
-    client: Client,
-    config: &Config,
-    capabilities: &ClientCapabilities,
-    replace: bool,
-) {
-    let Some(registration) = watcher_registration(config, capabilities) else {
-        return;
-    };
+/// A config reload replaces the registration, and the client answers each
+/// request asynchronously, so two reloads close together could otherwise
+/// interleave their unregister and register requests and leave the older
+/// config's watchers registered. Requests are applied in order, and one that a
+/// newer request has already superseded is skipped.
+#[derive(Default)]
+pub struct WatcherRegistrar {
+    requested: AtomicU64,
+    /// Whether a registration is live on the client, and so must be dropped
+    /// before the next one.
+    registered: tokio::sync::Mutex<bool>,
+}
 
-    tokio::spawn(async move {
-        if replace {
-            let unregistration = Unregistration {
-                id: REGISTRATION_ID.to_string(),
-                method: WATCHED_FILES_METHOD.to_string(),
-            };
-            if let Err(e) = client.unregister_capability(vec![unregistration]).await {
-                client
-                    .log_message(
-                        MessageType::WARNING,
-                        format!("Failed to unregister file watchers: {e}"),
-                    )
-                    .await;
+impl WatcherRegistrar {
+    /// Registers the watchers for `config`, replacing any earlier registration.
+    pub fn register(
+        self: &Arc<Self>,
+        client: Client,
+        config: &Config,
+        capabilities: &ClientCapabilities,
+    ) {
+        let Some(registration) = watcher_registration(config, capabilities) else {
+            return;
+        };
+        let generation = self.requested.fetch_add(1, Ordering::SeqCst) + 1;
+        let this = self.clone();
+
+        tokio::spawn(async move {
+            let mut registered = this.registered.lock().await;
+            if this.requested.load(Ordering::SeqCst) != generation {
+                return;
             }
-        }
-        if let Err(e) = client.register_capability(vec![registration]).await {
-            client
-                .log_message(
-                    MessageType::ERROR,
-                    format!("Failed to register file watchers: {e}"),
-                )
-                .await;
-        }
-    });
+            if *registered {
+                let unregistration = Unregistration {
+                    id: REGISTRATION_ID.to_string(),
+                    method: WATCHED_FILES_METHOD.to_string(),
+                };
+                if let Err(e) = client.unregister_capability(vec![unregistration]).await {
+                    client
+                        .log_message(
+                            MessageType::WARNING,
+                            format!("Failed to unregister file watchers: {e}"),
+                        )
+                        .await;
+                }
+                *registered = false;
+            }
+            match client.register_capability(vec![registration]).await {
+                Ok(()) => *registered = true,
+                Err(e) => {
+                    client
+                        .log_message(
+                            MessageType::ERROR,
+                            format!("Failed to register file watchers: {e}"),
+                        )
+                        .await;
+                }
+            }
+        });
+    }
 }
