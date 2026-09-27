@@ -400,6 +400,21 @@ pub async fn handle_did_change_watched_files(
     }
 }
 
+/// Whether a file created or deleted at `path` can change the files a project
+/// holds. Codegen writes its own output on every run, and some watchers report
+/// those writes as creations; counting them would make every run walk the
+/// projects again. A path without an extension still counts: deleting a
+/// directory arrives as a single event for the directory.
+fn may_change_project_files(
+    backend: &Backend,
+    path: &std::path::Path,
+    config: &graphox_core::Config,
+) -> bool {
+    (graphox_core::utils::is_relevant_file(path) || path.extension().is_none())
+        && !config.is_output_file(path)
+        && !graphox_core::utils::is_path_ignored(path, &backend.gitignore)
+}
+
 /// Processes a coalesced batch of watched-file changes (schema and ordinary files;
 /// config files are handled inline by [`handle_did_change_watched_files`]).
 ///
@@ -411,13 +426,15 @@ pub async fn process_watched_file_batch(backend: &Backend, changes: Vec<FileEven
         return;
     }
 
-    // Checked for every event, not only those for relevant files: deleting a
-    // directory arrives as one event for the directory.
-    if changes
-        .iter()
-        .any(|c| c.typ == FileChangeType::CREATED || c.typ == FileChangeType::DELETED)
     {
-        backend.note_file_set_changed();
+        let config = backend.config.read().unwrap().clone();
+        if changes.iter().any(|change| {
+            (change.typ == FileChangeType::CREATED || change.typ == FileChangeType::DELETED)
+                && graphox_core::utils::uri_to_path(&backend.normalize_uri(change.uri.clone()))
+                    .is_some_and(|path| may_change_project_files(backend, &path, &config))
+        }) {
+            backend.note_file_set_changed();
+        }
     }
 
     let config = backend.config.read().unwrap().clone();

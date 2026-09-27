@@ -1979,7 +1979,10 @@ async fn test_codegen_follows_a_schema_reload() {
     let service = setup_lsp_with_scan_complete(config).await;
     let backend = service.inner();
     backend.run_codegen().await;
-    assert!(generated_with(&base_dir, "number"), "count starts as an Int");
+    assert!(
+        generated_with(&base_dir, "number"),
+        "count starts as an Int"
+    );
 
     fs::write(
         &schema_path,
@@ -2004,6 +2007,52 @@ async fn test_codegen_follows_a_schema_reload() {
         "the reloaded schema was used: {generated:#?}"
     );
     assert!(!generated_with(&base_dir, "number"), "{generated:#?}");
+}
+
+/// Codegen's own output, ignored files and files no project can hold do not
+/// change the file set, whatever the watcher calls the event.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_created_output_and_ignored_files_leave_the_file_set_alone() {
+    let (_dir, base_dir, config) = file_list_workspace();
+    fs::create_dir_all(base_dir.join(".git")).unwrap();
+    fs::write(base_dir.join(".gitignore"), "build/\n").unwrap();
+    let service = setup_lsp_with_scan_complete(config).await;
+    let backend = service.inner();
+    backend.run_codegen().await;
+    let version = || {
+        backend
+            .project_files_version
+            .load(std::sync::atomic::Ordering::SeqCst)
+    };
+    let created = |rel: &str| FileEvent {
+        uri: graphox::utils::path_to_uri(base_dir.join(rel)).unwrap(),
+        typ: FileChangeType::CREATED,
+    };
+    let before = version();
+
+    graphox_lsp::backend::handlers::document_sync::process_watched_file_batch(
+        backend,
+        vec![
+            created("gen/query.codegen.ts"),
+            created("gen/graphql.ts"),
+            created("build/bundle.js"),
+            created("src/notes.md"),
+        ],
+    )
+    .await;
+    assert_eq!(
+        version(),
+        before,
+        "none of these can change a project's files"
+    );
+
+    graphox_lsp::backend::handlers::document_sync::process_watched_file_batch(
+        backend,
+        vec![created("src/new.graphql")],
+    )
+    .await;
+    assert!(version() > before, "a new source file does");
 }
 
 async fn setup_lsp_with_scan_complete(config: Config) -> LspService<support::LspBackend> {
