@@ -12,6 +12,7 @@ use crate::pull_diagnostics::DiagnosticsPuller;
 use crate::watcher::{FileWatcher, GlobBase, Rules, WatchCounts, WatchOptions};
 use crate::workspace::{self, Result, Site, Targets, git};
 use graphox_core::Config;
+use regex::Regex;
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -224,6 +225,17 @@ impl Session {
         }
 
         let Some(server) = self.server.as_ref() else {
+            // A restart that failed to bring the server back still belongs in
+            // the report, with its cause.
+            if let Some((mut child, _)) = profiler {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+            self.results.push(StepResult::failed(
+                name,
+                self.iteration,
+                error.unwrap_or_else(|| "server not running after the action".to_string()),
+            ));
             return;
         };
         // A restart replaces the server, whose counters then start from zero.
@@ -474,6 +486,18 @@ impl Session {
         self.measure(&format!("undo and save {rel}"), move |s| {
             let editor = s.editor();
             let end = site_undo.insert_at + TYPED_FIELD.len();
+            // Removing the range blind would delete real content if the typing
+            // step failed before inserting anything.
+            if editor
+                .text(&site_undo.path)
+                .and_then(|t| t.get(site_undo.insert_at..end))
+                != Some(TYPED_FIELD)
+            {
+                return Err(format!(
+                    "{} does not hold the typed field",
+                    site_undo.path.display()
+                ));
+            }
             editor.change(
                 &site_undo.path,
                 vec![(site_undo.insert_at, end, String::new())],
@@ -501,7 +525,19 @@ impl Session {
         self.measure(
             &format!("rename fragment back to {}", site.name),
             move |s| {
-                let files = s.editor().rename(&back.path, back.name_at, &back.name)?;
+                // The forward rename lengthens every spread above the definition
+                // too, so the base revision's offset no longer points at it.
+                let renamed = format!("{}Renamed", back.name);
+                let pattern = Regex::new(&format!(r"\bfragment\s+({})\b", regex::escape(&renamed)))
+                    .map_err(|e| e.to_string())?;
+                let at = s
+                    .editor()
+                    .text(&back.path)
+                    .and_then(|t| pattern.captures(t))
+                    .and_then(|c| c.get(1))
+                    .map(|m| m.start())
+                    .ok_or_else(|| format!("{renamed} not found in {}", back.path.display()))?;
+                let files = s.editor().rename(&back.path, at, &back.name)?;
                 s.log.line("step", &format!("rename touched {files} files"));
                 Ok(())
             },
