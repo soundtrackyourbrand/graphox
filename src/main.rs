@@ -55,9 +55,6 @@ enum Commands {
     },
     /// Benchmark codegen performance
     Benchmark {
-        /// Directory to scan
-        #[arg(default_value = ".")]
-        path: String,
         /// Show detailed fragment discovery information
         #[arg(short, long)]
         verbose: bool,
@@ -226,7 +223,6 @@ async fn main() {
             }
         },
         Some(Commands::Benchmark {
-            path: _,
             verbose,
             instrument_scan,
         }) => {

@@ -265,3 +265,20 @@ fn check_fails_for_a_path_without_documents() {
     );
     std::fs::remove_dir_all(dir).ok();
 }
+
+/// `benchmark` always measures the whole workspace, so it takes no path
+/// rather than accepting one it would ignore.
+#[test]
+#[ntest::timeout(20000)]
+fn benchmark_rejects_a_path() {
+    let dir = workspace("graphox_scope_benchmark");
+
+    let output = run(&dir, &["benchmark", "apps/one"]);
+    assert!(!output.status.success());
+    assert!(
+        stderr(&output).contains("unexpected argument 'apps/one'"),
+        "{}",
+        stderr(&output)
+    );
+    std::fs::remove_dir_all(dir).ok();
+}
