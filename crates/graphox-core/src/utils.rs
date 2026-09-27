@@ -1044,6 +1044,8 @@ pub fn get_project_scan_files(
 #[derive(Clone, Debug)]
 pub struct GitignoreMatcher {
     root: PathBuf,
+    /// `root` with symlinks resolved, for paths that arrive in that form.
+    canonical_root: PathBuf,
     /// One matcher per `.gitignore`, deepest directory first, so the first
     /// decisive match is the one git would use.
     files: Vec<ignore::gitignore::Gitignore>,
@@ -1053,6 +1055,7 @@ impl GitignoreMatcher {
     pub fn empty(root: &Path) -> Self {
         Self {
             root: root.to_path_buf(),
+            canonical_root: canonicalize_cached(root),
             files: Vec::new(),
         }
     }
@@ -1065,8 +1068,10 @@ impl GitignoreMatcher {
         }
         // Editors and filesystem events can report a path through a symlink
         // or a differently spelled prefix of the same directory.
+        // Only the remainder is needed: `is_ignored_relative` rebuilds each
+        // checked path on `root`, the spelling the per-file matchers know.
         let canonical = canonicalize_cached(path);
-        match canonical.strip_prefix(&self.root) {
+        match canonical.strip_prefix(&self.canonical_root) {
             Ok(rel) => self.is_ignored_relative(rel, is_dir),
             Err(_) => false,
         }
@@ -1139,6 +1144,7 @@ pub fn get_gitignore_matcher(base_dir: &Path) -> GitignoreMatcher {
 
     GitignoreMatcher {
         root: base_dir.to_path_buf(),
+        canonical_root: canonicalize_cached(base_dir),
         files,
     }
 }
@@ -1946,6 +1952,24 @@ mod tests {
 
         assert!(is_path_ignored(&base.join("dist"), &matcher));
         assert!(is_path_ignored(&base.join("dist/keep.ts"), &matcher));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    #[ntest::timeout(10000)]
+    fn a_workspace_reached_through_a_symlink_still_ignores_resolved_paths() {
+        let dir = gitignore_fixture(&[(".gitignore", "dist/\n"), ("dist/bundle.js", "")]);
+        let real = dir.path().canonicalize().unwrap();
+        let outer = tempfile::tempdir().unwrap();
+        let link = outer.path().join("workspace");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        let matcher = get_gitignore_matcher(&link);
+
+        assert!(is_path_ignored(&link.join("dist/bundle.js"), &matcher));
+        // The same file, as an event reports it once symlinks are resolved.
+        assert!(is_path_ignored(&real.join("dist/bundle.js"), &matcher));
+        assert!(!is_path_ignored(&real.join("src.ts"), &matcher));
     }
 
     /// Checks the matcher against git itself over a fixture mixing root and
