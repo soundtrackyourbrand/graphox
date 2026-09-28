@@ -89,6 +89,10 @@ baselines too.
 
 No `sleep` in LSP tests — synchronise on the state being waited for.
 
+A test that spawns the CLI gets an `ntest::timeout` of at least 20 seconds. The
+timeout only guards against a hang: starting a process while the whole suite runs
+in parallel can take seconds, and a tighter limit fails on a busy machine.
+
 ## Adding a feature
 
 - **LSP:** logic in `graphox-features`, then wire it into `Backend` in

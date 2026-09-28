@@ -2,7 +2,7 @@
 use crate::support::cmd::graphox;
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_cross_project_circular_fragments() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_cross_project_circular");
@@ -73,7 +73,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_cross_project_private_fragments_no_cross() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_cross_project_circular_private");

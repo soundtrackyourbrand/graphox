@@ -3,7 +3,7 @@ use std::fs;
 use crate::support::cmd::graphox;
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_no_self_importing_fragments() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_no_self_import_test");
@@ -95,7 +95,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_no_self_import_with_symlink() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_symlink_test");

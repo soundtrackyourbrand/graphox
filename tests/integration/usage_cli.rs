@@ -54,7 +54,7 @@ fn run(dir: &TempDir, args: &[&str]) -> (String, Option<i32>) {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn lists_types_ranked_by_consumers() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--limit", "0"]);
@@ -68,7 +68,7 @@ fn lists_types_ranked_by_consumers() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn a_named_type_lists_its_fields_by_consumer_count() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--type", "Account", "--limit", "0"]);
@@ -88,7 +88,7 @@ fn a_named_type_lists_its_fields_by_consumer_count() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn scoping_to_an_app_narrows_the_counts() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--app", "apps/one", "--type", "Account"]);
@@ -104,7 +104,7 @@ fn scoping_to_an_app_narrows_the_counts() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn a_named_field_lists_what_selects_it() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--type", "Account", "--field", "name"]);
@@ -124,7 +124,7 @@ fn a_named_field_lists_what_selects_it() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn unused_reports_declared_fields_nothing_selects() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--unused", "--limit", "0"]);
@@ -135,7 +135,7 @@ fn unused_reports_declared_fields_nothing_selects() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn an_unknown_app_names_the_projects_that_exist() {
     let dir = workspace();
     let (out, status) = run(&dir, &["--app", "nope"]);
@@ -149,7 +149,7 @@ fn an_unknown_app_names_the_projects_that_exist() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn json_carries_every_field_and_its_consumers() {
     let dir = workspace();
     // --limit is a display concern; JSON stays complete.
