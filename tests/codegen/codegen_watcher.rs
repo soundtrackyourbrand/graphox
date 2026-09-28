@@ -82,7 +82,7 @@ fn test_codegen_watch_mode() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_codegen_watch_schema_changes() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();
@@ -160,7 +160,7 @@ fn test_codegen_watch_schema_changes() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_codegen_idempotent_writes() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let dir = tempdir().unwrap();

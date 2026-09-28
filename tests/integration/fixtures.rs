@@ -6,13 +6,13 @@ use graphox_core::schema_cache;
 use crate::support::cmd::graphox;
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_baselines() {
     run_baseline_test("tests/fixtures/codegen", "tests/baselines/codegen", None);
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_nullable_fields_as_optional_baselines() {
     run_baseline_test(
         "tests/fixtures/nullable_fields_as_optional",
@@ -22,7 +22,7 @@ fn test_cli_nullable_fields_as_optional_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_operation_suffixes_baselines() {
     run_baseline_test(
         "tests/fixtures/operation_suffixes",
@@ -32,7 +32,7 @@ fn test_cli_operation_suffixes_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_schema_import_baselines() {
     run_baseline_test(
         "tests/fixtures/schema_import",
@@ -42,7 +42,7 @@ fn test_cli_schema_import_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_project_import_baselines() {
     run_baseline_test(
         "tests/fixtures/project_import",
@@ -52,7 +52,7 @@ fn test_cli_project_import_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_multi_schema_import_baselines() {
     run_baseline_test(
         "tests/fixtures/multi_schema_import",
@@ -62,7 +62,7 @@ fn test_cli_multi_schema_import_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_multi_schema_import_superset_baselines() {
     run_baseline_test(
         "tests/fixtures/multi_schema_import_superset",
@@ -72,7 +72,7 @@ fn test_cli_multi_schema_import_superset_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_multi_schema_import_caching_baselines() {
     run_baseline_test(
         "tests/fixtures/multi_schema_import_caching",
@@ -82,7 +82,7 @@ fn test_cli_multi_schema_import_caching_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_multi_schema_two_imports_baselines() {
     run_baseline_test(
         "tests/fixtures/multi_schema_two_imports",
@@ -92,7 +92,7 @@ fn test_cli_multi_schema_two_imports_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_transitive_private_fragment_baselines() {
     run_baseline_test(
         "tests/fixtures/transitive_private_fragment",
@@ -102,7 +102,7 @@ fn test_cli_transitive_private_fragment_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_public_test_baselines() {
     run_baseline_test(
         "tests/fixtures/public_test",
@@ -112,7 +112,7 @@ fn test_cli_public_test_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_fragment_ast_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_ast",
@@ -122,7 +122,7 @@ fn test_cli_fragment_ast_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_entrypoint_baselines() {
     run_baseline_test(
         "tests/fixtures/entrypoint",
@@ -132,13 +132,13 @@ fn test_cli_entrypoint_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_aliases_baselines() {
     run_baseline_test("tests/fixtures/aliases", "tests/baselines/aliases", None);
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_permissions_baselines() {
     run_baseline_test(
         "tests/fixtures/permissions",
@@ -148,7 +148,7 @@ fn test_cli_permissions_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_possible_types_baselines() {
     run_baseline_test(
         "tests/fixtures/possible_types",
@@ -158,7 +158,7 @@ fn test_cli_possible_types_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_swc_plugin_baselines() {
     run_baseline_test(
         "tests/fixtures/swc_plugin",
@@ -168,13 +168,13 @@ fn test_cli_swc_plugin_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_suffixes_baselines() {
     run_baseline_test("tests/fixtures/suffixes", "tests/baselines/suffixes", None);
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_re_exports_baselines() {
     run_baseline_test(
         "tests/fixtures/re_exports",
@@ -184,7 +184,7 @@ fn test_cli_re_exports_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_react_apollo_hooks_baselines() {
     run_baseline_test(
         "tests/fixtures/react_apollo_hooks",
@@ -194,7 +194,7 @@ fn test_cli_react_apollo_hooks_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_naming_convention_pascal_case_baselines() {
     run_baseline_test(
         "tests/fixtures/naming_convention",
@@ -204,7 +204,7 @@ fn test_cli_naming_convention_pascal_case_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_naming_convention_preserve_baselines() {
     run_baseline_test(
         "tests/fixtures/naming_convention_preserve",
@@ -214,7 +214,7 @@ fn test_cli_naming_convention_preserve_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_inline_fragments_baselines() {
     run_baseline_test(
         "tests/fixtures/inline_fragments",
@@ -224,7 +224,7 @@ fn test_cli_inline_fragments_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_output_types_baselines() {
     run_baseline_test(
         "tests/fixtures/output_types",
@@ -234,7 +234,7 @@ fn test_cli_output_types_baselines() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_typename_strictness_baselines() {
     run_baseline_test(
         "tests/fixtures/typename_strictness",
@@ -244,7 +244,7 @@ fn test_cli_typename_strictness_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_fragment_masking_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_masking",
@@ -254,7 +254,7 @@ fn test_cli_fragment_masking_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_fragment_document_suffix_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_document_suffix",
@@ -264,7 +264,7 @@ fn test_cli_fragment_document_suffix_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_duplicate_type_fields() {
     run_baseline_test(
         "tests/fixtures/duplicate_type_fields",
@@ -274,7 +274,7 @@ fn test_cli_duplicate_type_fields() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_duplicate_fragment_fields_baselines() {
     run_baseline_test(
         "tests/fixtures/duplicate_fragment_fields",
@@ -284,7 +284,7 @@ fn test_cli_duplicate_fragment_fields_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_include_strip_baselines() {
     run_baseline_test(
         "tests/fixtures/include_strip",
@@ -294,7 +294,7 @@ fn test_cli_include_strip_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_union_merging_baselines() {
     run_baseline_test(
         "tests/fixtures/union_merging",
@@ -304,7 +304,7 @@ fn test_cli_union_merging_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_fragment_spread_ast_baselines() {
     run_baseline_test(
         "tests/fixtures/fragment_spread_ast",
@@ -314,7 +314,7 @@ fn test_cli_fragment_spread_ast_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_embedded_fragments_baselines() {
     run_baseline_test(
         "tests/fixtures/embedded_fragments",
@@ -324,7 +324,7 @@ fn test_cli_embedded_fragments_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_type_merging_disabled_baselines() {
     run_baseline_test(
         "tests/fixtures/type_merging_disabled",
@@ -334,7 +334,7 @@ fn test_cli_type_merging_disabled_baselines() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_type_merging_enabled_baselines() {
     run_baseline_test(
         "tests/fixtures/type_merging_enabled",

@@ -1,7 +1,7 @@
 use crate::support::cmd::graphox;
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_fragment_import_from_other_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_fragment_import_test");

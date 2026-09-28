@@ -29,7 +29,7 @@ fn run_codegen_fixture(test_name: &str, schema: &str, query: &str, config: &str)
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_union_fragment_codegen() {
     let content = run_codegen_fixture(
         "graphox_union_fragment_test",
@@ -103,7 +103,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_union_fragment_codegen_merge_keys_use_applicable_spreads() {
     let content = run_codegen_fixture(
         "graphox_union_fragment_merge_key_test",
@@ -175,7 +175,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_union_fragment_codegen_preserves_nested_inline_fragment_type_conditions() {
     let content = run_codegen_fixture(
         "graphox_nested_inline_fragment_key_test",

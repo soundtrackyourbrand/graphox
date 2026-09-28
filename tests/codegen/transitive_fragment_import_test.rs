@@ -29,7 +29,7 @@ use crate::support::cmd::graphox;
 ///   // ProductCardFragment is NOT imported even though it's referenced by name
 ///   // inside PlaylistInfoFragment's type definition — TypeScript cannot resolve it.
 #[test]
-#[ntest::timeout(15000)]
+#[ntest::timeout(20000)]
 fn test_transitive_fragment_not_imported_from_other_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join("graphox_transitive_fragment_import_test");

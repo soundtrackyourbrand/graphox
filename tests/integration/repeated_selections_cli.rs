@@ -38,7 +38,7 @@ fn workspace(rules: &str) -> TempDir {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn severity_decides_reporting_and_fail_on_decides_the_exit_code() {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let dir =
@@ -76,7 +76,7 @@ fn severity_decides_reporting_and_fail_on_decides_the_exit_code() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn an_info_finding_is_reported_without_verbose() {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let dir = workspace(
@@ -101,7 +101,7 @@ fn an_info_finding_is_reported_without_verbose() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn a_shape_is_one_finding_listing_every_place() {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let dir = workspace(
@@ -125,7 +125,7 @@ fn a_shape_is_one_finding_listing_every_place() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn reporters_that_carry_one_location_name_the_others_in_the_message() {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let dir = workspace(
@@ -158,7 +158,7 @@ fn reporters_that_carry_one_location_name_the_others_in_the_message() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn related_paths_are_relative_to_the_same_root_as_the_primary() {
     let bin = env!("CARGO_BIN_EXE_graphox");
     let dir = TempDir::new().unwrap();

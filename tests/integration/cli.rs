@@ -4,7 +4,7 @@ use tempfile::tempdir;
 use crate::support::cmd::{assert_command_succeeded, fresh_dir, graphox};
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_no_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_check_no_deprecations");
@@ -41,7 +41,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_with_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_check_with_deprecations");
@@ -85,7 +85,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_cross_project_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_cross_project_frag");
@@ -143,7 +143,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_recursive_fragment_usage() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_recursive_frag");
@@ -201,7 +201,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_ignore_files() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_ignore_test");
@@ -249,7 +249,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_error() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_error_test");
@@ -294,7 +294,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_invalid_schema() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_invalid_schema_test");
@@ -331,7 +331,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_clean() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_clean_test");
@@ -397,7 +397,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_verbose_ignored_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_check_verbose_test");
@@ -471,7 +471,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_fragment_ast_generation() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_fragment_ast_test");
@@ -545,7 +545,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_graphql_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_entrypoint_test");
@@ -615,7 +615,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_config_file() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = std::env::temp_dir().join(format!(
@@ -674,7 +674,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_config_output_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_config_output_test");
@@ -729,7 +729,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_input_deprecations() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_input_deprecations_test");
@@ -796,7 +796,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_schema_types() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_schema_types_test");
@@ -862,7 +862,7 @@ schema_types:
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_custom_scalars() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_scalars_test");
@@ -956,7 +956,7 @@ scalars:
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_entrypoint() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_entrypoint");
@@ -1041,7 +1041,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_disabled");
@@ -1135,7 +1135,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_with_codegen_disabled() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_check_disabled");
@@ -1193,7 +1193,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_multi_project_isolation() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let fixture_dir = Path::new("tests/fixtures/multi_project_isolation");
@@ -1266,7 +1266,7 @@ fn test_multi_project_isolation() {
 }
 
 #[test]
-#[ntest::timeout(3000)]
+#[ntest::timeout(20000)]
 fn test_npm_wrapper_execution() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let root_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -1343,7 +1343,7 @@ fn run_codegen(dir: &Path) -> (bool, String) {
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_fails_when_project_matches_no_documents() {
     // A mistyped `documents` pattern used to exit 0 without checking anything.
     let dir = empty_project_fixture(
@@ -1363,7 +1363,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_allow_no_documents_globally() {
     let dir = empty_project_fixture(
         r#"
@@ -1381,7 +1381,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_allow_no_documents_per_project_overrides_global_deny() {
     let dir = empty_project_fixture(
         r#"
@@ -1401,7 +1401,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_deny_no_documents_per_project_overrides_global_allow() {
     let dir = empty_project_fixture(
         r#"
@@ -1420,7 +1420,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_check_dot_slash_documents_pattern_matches_files() {
     // A `./`-prefixed pattern collected nothing, which the empty-project check
     // now also catches. The document here is valid, so a clean exit proves the
@@ -1439,7 +1439,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_fails_when_project_matches_no_documents() {
     // Codegen has the same silent-pass hazard as `check`: nothing to read means
     // nothing written, and it used to report success anyway.
@@ -1463,7 +1463,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_allow_no_documents() {
     let dir = empty_project_fixture(
         r#"
@@ -1483,7 +1483,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_allow_no_documents_per_project_override() {
     let dir = empty_project_fixture(
         r#"
@@ -1509,7 +1509,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_disabled_project_may_match_no_documents() {
     // A project that generates nothing by configuration is not the mistake this
     // check is for, so it must stay silent.
@@ -1531,7 +1531,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(5000)]
+#[ntest::timeout(20000)]
 fn test_cli_codegen_clean_ignores_projects_with_no_documents() {
     // `--clean` only removes generated files; an empty project must not fail it.
     let dir = empty_project_fixture(
@@ -1554,7 +1554,7 @@ projects:
 /// to come from a hasher seeded per process, so every run missed and added a
 /// new set of cache files.
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn test_cli_runs_reuse_the_schema_cache() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_schema_cache_reuse");

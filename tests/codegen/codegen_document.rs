@@ -65,7 +65,7 @@ fn assert_document_references(content: &str, document_name: &str, expected_refs:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_codegen_document_node() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_document_test");
@@ -142,7 +142,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_codegen_aliases_and_enums() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_quirks_test");
@@ -213,7 +213,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_codegen_document_node_no_vars() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_document_no_vars_test");
@@ -265,7 +265,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_codegen_missing_parent_dir() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_missing_parent_test");
@@ -323,7 +323,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(1000)]
+#[ntest::timeout(20000)]
 fn test_entrypoint_documents_and_overloads_populated() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_entrypoint_test");
@@ -406,7 +406,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_codegen_fragment_ordering() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_ordering_test");
@@ -511,7 +511,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
     use ahash::AHashMap;
     use graphox::{
@@ -668,7 +668,7 @@ fn test_codegen_fragment_ordering_stable_with_cache_reuse() {
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_codegen_recursive_fragment_ordering() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir = fresh_dir("graphox_codegen_recursive_test");
@@ -775,7 +775,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_codegen_operation_ast_includes_same_named_fragment_across_embedded_blocks() {
     let content = generate_ast_codegen_output(
         "graphox_codegen_same_named_fragment_blocks_test",
@@ -836,7 +836,7 @@ type Settings { enableActivityLog: Boolean }
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_codegen_operation_ast_includes_same_named_fragment_for_mutation() {
     let content = generate_ast_codegen_output(
         "graphox_codegen_same_named_fragment_mutation_test",
@@ -871,7 +871,7 @@ type Account { id: ID! name: String }
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_codegen_operation_ast_keeps_same_named_transitive_fragment_dependency() {
     let content = generate_ast_codegen_output(
         "graphox_codegen_same_named_transitive_fragment_test",

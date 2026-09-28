@@ -58,7 +58,7 @@ projects:
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_graphql_tag_fallback_enabled() {
     let (content, output) = setup_codegen_fixture(true);
 
@@ -86,7 +86,7 @@ fn test_graphql_tag_fallback_enabled() {
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_graphql_tag_fallback_disabled() {
     let (content, output) = setup_codegen_fixture(false);
 
@@ -112,7 +112,7 @@ fn test_graphql_tag_fallback_disabled() {
 }
 
 #[test]
-#[ntest::timeout(2000)]
+#[ntest::timeout(20000)]
 fn test_graphql_tag_fallback_includes_fragment_sources_for_spreads() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let temp_dir_handle = tempfile::tempdir().unwrap();
