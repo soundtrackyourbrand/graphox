@@ -898,6 +898,13 @@ fragment ReconcileUser on User {
     fn generate(
         generate_ast_for_fragments: bool,
     ) -> (String, Vec<OperationGenerated>, Vec<FragmentGenerated>) {
+        generate_with(generate_ast_for_fragments, false)
+    }
+
+    fn generate_with(
+        generate_ast_for_fragments: bool,
+        fragment_masking: bool,
+    ) -> (String, Vec<OperationGenerated>, Vec<FragmentGenerated>) {
         let schema = Schema::parse(SCHEMA, "schema.graphql").unwrap();
         let valid_schema = schema.validate().expect("schema should be valid");
 
@@ -916,7 +923,16 @@ fragment ReconcileUser on User {
         let scalars = HashMap::default();
         let schema_import = None;
         let type_imports = HashMap::default();
-        let config = CodegenConfig::default();
+        let config = if fragment_masking {
+            CodegenConfig::default().with_fragment_masking(
+                graphox_core::config::FragmentMasking::Enabled {
+                    unmask_function_name: None,
+                }
+                .into(),
+            )
+        } else {
+            CodegenConfig::default()
+        };
 
         let ctx = CodegenContext {
             schema: &valid_schema,
@@ -989,5 +1005,16 @@ fragment ReconcileUser on User {
         let frag = frags.first().expect("one fragment");
         assert_eq!(frag.ast_bytes, 0);
         assert!(frag.generated_bytes > 0, "its type is still generated");
+    }
+
+    /// Masking carries a fragment's type on a runtime document, so the fragment
+    /// reaches the bundle as data even with fragment ASTs off.
+    #[test]
+    fn a_masked_fragment_has_ast_bytes_without_fragment_asts() {
+        let (output, _, frags) = generate_with(false, true);
+
+        let frag = frags.first().expect("one fragment");
+        assert!(frag.ast_bytes > 0, "masking emits a document:\n{output}");
+        assert!(frag.ast_bytes < frag.generated_bytes);
     }
 }

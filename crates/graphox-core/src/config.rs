@@ -1379,6 +1379,12 @@ impl FragmentMaskingConfig {
     }
 }
 
+impl From<FragmentMasking> for FragmentMaskingConfig {
+    fn from(mode: FragmentMasking) -> Self {
+        Self { mode }
+    }
+}
+
 impl Default for SchemaSource {
     fn default() -> Self {
         Self::Single("schema.graphql".to_string())

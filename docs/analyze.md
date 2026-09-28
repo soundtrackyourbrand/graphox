@@ -171,9 +171,9 @@ graphox analyze operations --json | jq '.operations[] | select(.list_nesting >= 
 |--------|---------|
 | `depth` | Longest chain of nested fields in the request |
 | `own_depth` | The same with spreads left unfollowed |
-| `fields` | Fields the response contains, and so resolver calls the request costs |
+| `fields` | Distinct fields in the response shape. Not resolver calls: a field under a list resolves once per item |
 | `list_nesting` | List-typed fields along one path, with `list_path` naming it |
-| `root_fields` | Top-level fields, which the server resolves in parallel |
+| `root_fields` | Top-level fields. A query's run in parallel; a mutation's one after another |
 | `variables`, `spreads` | Declared variables; fragments the request pulls in |
 
 The two depths are a pair on purpose. An operation deep in its own body is one
@@ -190,8 +190,8 @@ a large account. Each wrapper counts, so `[[Cell!]!]!` is two.
 The unit is the response, so selections are collected through spreads and
 inline fragments into the shape one reply takes, keyed by response key, as the
 spec collects fields. Two spreads that both select `id` on the same object
-describe one entry in the response and one resolver call, so they count once; an
-alias is its own entry, so it counts separately.
+describe one entry in the response, so they count once; an alias is its own
+entry, so it counts separately.
 
 This is the maximum response shape rather than a per-request estimate: two
 inline fragments on different type conditions both contribute their fields,

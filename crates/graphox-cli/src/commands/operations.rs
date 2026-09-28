@@ -92,6 +92,8 @@ pub async fn run_operations(config: Config, params: OperationsParams) {
         .filter(|cost| params.name.as_ref().is_none_or(|name| &cost.name == name))
         .collect();
 
+    // Sorted before choosing the output, so `--sort` orders JSON too.
+    let matched = sorted(matched, params.sort);
     if params.json {
         print_json(&config, &matched, &unparsed);
     } else {
@@ -124,11 +126,8 @@ fn print_human(
     unparsed: &[std::path::PathBuf],
     params: &OperationsParams,
 ) {
-    if matched.is_empty() {
-        println!("No operation matched.");
-        return;
-    }
-
+    // Before the empty result: files that did not parse may be why nothing
+    // matched.
     if !unparsed.is_empty() {
         println!(
             "{}",
@@ -140,9 +139,14 @@ fn print_human(
         );
     }
 
+    if matched.is_empty() {
+        println!("No operation matched.");
+        return;
+    }
+
     // Naming one operation means asking what makes it cost what it does.
     if params.name.is_some() {
-        for cost in sorted(matched, params.sort) {
+        for cost in matched {
             println!(
                 "\n{} {} {}",
                 cost.name.bold(),
@@ -202,7 +206,7 @@ fn print_human(
         "OPERATION".bright_black()
     );
 
-    let rows = take(sorted(matched, params.sort), params.limit);
+    let rows = take(matched, params.limit);
     for cost in &rows {
         let lists = if cost.list_nesting >= 3 {
             cost.list_nesting.to_string().yellow()

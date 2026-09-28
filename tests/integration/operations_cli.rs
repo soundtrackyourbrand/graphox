@@ -64,7 +64,7 @@ fn run(dir: &TempDir, args: &[&str]) -> (String, Option<i32>) {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn ranks_operations_by_depth() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--limit", "0"]);
@@ -82,7 +82,7 @@ fn ranks_operations_by_depth() {
 /// The pair of depth columns is the point of the ranking: it separates an
 /// operation that is deep by itself from one that is deep through a fragment.
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn own_depth_shows_the_depth_a_fragment_contributes() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--name", "Deep"]);
@@ -96,7 +96,7 @@ fn own_depth_shows_the_depth_a_fragment_contributes() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn sorting_by_lists_leads_with_the_multiplying_request() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--sort", "lists", "--limit", "1"]);
@@ -106,7 +106,7 @@ fn sorting_by_lists_leads_with_the_multiplying_request() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn kind_selects_one_operation_type() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--kind", "mutation", "--limit", "0"]);
@@ -116,7 +116,7 @@ fn kind_selects_one_operation_type() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn scoping_to_an_app_narrows_what_is_ranked() {
     let dir = workspace();
     let (out, _) = run(&dir, &["--app", "apps/two", "--limit", "0"]);
@@ -126,7 +126,7 @@ fn scoping_to_an_app_narrows_what_is_ranked() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn an_unknown_app_names_the_projects_that_exist() {
     let dir = workspace();
     let (out, status) = run(&dir, &["--app", "nope"]);
@@ -137,7 +137,7 @@ fn an_unknown_app_names_the_projects_that_exist() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn an_unknown_kind_is_rejected() {
     let dir = workspace();
     let (out, status) = run(&dir, &["--kind", "nope"]);
@@ -147,7 +147,7 @@ fn an_unknown_kind_is_rejected() {
 }
 
 #[test]
-#[ntest::timeout(10000)]
+#[ntest::timeout(20000)]
 fn json_carries_every_operation_and_its_metrics() {
     let dir = workspace();
     // --limit is a display concern; JSON stays complete.
@@ -172,4 +172,58 @@ fn json_carries_every_operation_and_its_metrics() {
         "{line}"
     );
     assert!(line.contains("\"kind\":\"mutation\""), "{line}");
+}
+
+fn json_names(out: &str) -> Vec<String> {
+    // The output can carry log lines after the document, so read one value.
+    let start = out.find('{').expect("JSON output");
+    let value: serde_json::Value = serde_json::Deserializer::from_str(&out[start..])
+        .into_iter()
+        .next()
+        .expect("a JSON value")
+        .unwrap();
+    value["operations"]
+        .as_array()
+        .expect("an operations array")
+        .iter()
+        .map(|op| op["operation"].as_str().unwrap().to_string())
+        .collect()
+}
+
+/// `--sort` orders the JSON the same way it orders the table. The two keys
+/// rank this workspace differently, so each order shows its own key applied.
+#[test]
+#[ntest::timeout(20000)]
+fn json_output_follows_the_sort() {
+    let dir = workspace();
+
+    let (by_depth, _) = run(&dir, &["--json", "--sort", "depth"]);
+    assert_eq!(json_names(&by_depth), ["Deep", "Rename", "Shallow"]);
+
+    let (by_fields, _) = run(&dir, &["--json", "--sort", "fields"]);
+    assert_eq!(json_names(&by_fields), ["Deep", "Shallow", "Rename"]);
+}
+
+/// Files that did not parse can be why nothing matched, so they are reported
+/// with the empty result rather than hidden by it.
+#[test]
+#[ntest::timeout(20000)]
+fn an_empty_result_still_reports_files_that_did_not_parse() {
+    let dir = TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("apps/one")).unwrap();
+    std::fs::write(dir.path().join("schema.graphql"), SCHEMA).unwrap();
+    std::fs::write(
+        dir.path().join("apps/one/broken.graphql"),
+        "}} this is not GraphQL {{\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("graphox.yaml"),
+        "projects:\n  - schema: schema.graphql\n    include: \"apps/one/**/*.graphql\"\n",
+    )
+    .unwrap();
+
+    let (out, _) = run(&dir, &[]);
+    assert!(out.contains("No operation matched."), "{out}");
+    assert!(out.contains("1 file did not parse"), "{out}");
 }

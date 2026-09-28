@@ -646,8 +646,8 @@ pub struct FragmentGenerated {
     /// way as [`OperationGenerated::generated_bytes`].
     pub generated_bytes: usize,
     /// The `DocumentNode` export alone, out of `generated_bytes`. Zero unless
-    /// `generate_ast_for_fragments` is on, which is what decides whether a
-    /// fragment reaches the bundle as data or only as an erased type.
+    /// fragment AST generation is enabled for a non-type-only fragment, or
+    /// fragment masking emits a runtime document.
     pub ast_bytes: usize,
 }
 
