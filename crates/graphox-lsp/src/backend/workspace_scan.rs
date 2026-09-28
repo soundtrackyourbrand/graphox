@@ -494,7 +494,7 @@ async fn validate_all_documents_cancellable(
             batch_uris
                 .par_iter()
                 .filter_map(|uri: &Uri| {
-                    let doc = documents.get(uri)?;
+                    let doc = documents.get(uri).map(|held| held.value().clone())?;
                     let meta = metadata.get(uri)?;
 
                     let schema = if let Some(path) = graphox_core::utils::uri_to_path(uri)
@@ -559,7 +559,7 @@ async fn validate_all_documents_cancellable(
                         );
                     }
 
-                    Some((uri.clone(), doc.version, diagnostics))
+                    Some((uri.clone(), doc, diagnostics))
                 })
                 .collect::<Vec<_>>()
         })
@@ -601,7 +601,13 @@ async fn validate_all_documents_cancellable(
     }
 
     // Commit all staged diagnostics only if we finished without cancellation
-    for (uri, version, diagnostics) in staged_diagnostics {
+    for (uri, doc, diagnostics) in staged_diagnostics {
+        // A document opened or edited while the scan validated it has been
+        // validated again since; the scan's result for it is stale.
+        if !super::validation::is_current(&params.documents, &uri, &doc) {
+            continue;
+        }
+        let version = doc.version;
         params
             .diagnostic_cache
             .insert(uri.clone(), (version, result_id_epoch, diagnostics.clone()));

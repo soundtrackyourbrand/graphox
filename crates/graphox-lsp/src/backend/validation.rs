@@ -62,6 +62,24 @@ pub struct ValidationParams<'a> {
 ///
 /// If `use_push` is true, diagnostics are pushed via `publishDiagnostics`.
 /// If false, diagnostics are only cached for pull-based retrieval.
+/// Whether `validated` is still the document held for `uri`.
+///
+/// A validation works on a snapshot and commits its result later. If the
+/// document was replaced or closed meanwhile, the result describes text the
+/// client no longer shows, and committing it last would leave stale
+/// diagnostics in place. Every path that replaces a document also validates
+/// the replacement, so a result skipped here is always superseded. Versions
+/// cannot decide this: a document changed on disk is re-read at version 0.
+pub(crate) fn is_current(
+    documents: &graphox_core::types::DocumentsMap,
+    uri: &Uri,
+    validated: &Arc<DocumentState>,
+) -> bool {
+    documents
+        .get(uri)
+        .is_some_and(|held| Arc::ptr_eq(held.value(), validated))
+}
+
 pub async fn validate_uris(
     params: ValidationParams<'_>,
     uris: Vec<Uri>,
@@ -156,7 +174,7 @@ pub async fn validate_uris(
             .into_par_iter()
             .map(|(uri, doc, is_configured)| {
                 if !is_configured {
-                    return (uri, doc.version, Vec::new());
+                    return (uri, doc, Vec::new());
                 }
 
                 let schema =
@@ -204,7 +222,7 @@ pub async fn validate_uris(
                     );
                 }
 
-                (uri, doc.version, diagnostics)
+                (uri, doc, diagnostics)
             })
             .collect::<Vec<_>>()
     })
@@ -224,7 +242,12 @@ pub async fn validate_uris(
     };
 
     // Publish and cache results sequentially (async)
-    for (idx, (uri, version, diagnostics)) in results.into_iter().enumerate() {
+    for (idx, (uri, doc, diagnostics)) in results.into_iter().enumerate() {
+        let version = doc.version;
+        if !is_current(params.documents, &uri, &doc) {
+            continue;
+        }
+
         // Cache diagnostics for pull-based diagnostics
         if let Some(cache) = diagnostic_cache {
             cache.insert(
@@ -486,5 +509,79 @@ fn add_duplicate_operation_diagnostics(
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use graphox_core::types::DocumentsMap;
+    use tower_lsp_server::ls_types::{PositionEncodingKind, TextDocumentContentChangeEvent};
+
+    fn held(text: &str) -> (DocumentsMap, Uri) {
+        let uri: Uri = "file:///workspace/query.graphql".parse().unwrap();
+        let documents: DocumentsMap =
+            Arc::new(dashmap::DashMap::with_hasher(ahash::RandomState::default()));
+        let doc =
+            DocumentState::new_from_thread_local(uri.clone(), text, PositionEncodingKind::UTF16);
+        documents.insert(uri.clone(), Arc::new(doc));
+        (documents, uri)
+    }
+
+    fn snapshot(documents: &DocumentsMap, uri: &Uri) -> Arc<DocumentState> {
+        documents.get(uri).unwrap().value().clone()
+    }
+
+    #[test]
+    fn the_validated_snapshot_is_current_until_the_document_changes() {
+        let (documents, uri) = held("query Q { a }");
+        let validated = snapshot(&documents, &uri);
+        assert!(is_current(&documents, &uri, &validated));
+
+        documents.insert(
+            uri.clone(),
+            Arc::new(DocumentState::new_from_thread_local(
+                uri.clone(),
+                "query Q { b }",
+                PositionEncodingKind::UTF16,
+            )),
+        );
+        assert!(
+            !is_current(&documents, &uri, &validated),
+            "replaced on disk"
+        );
+    }
+
+    /// `didChange` edits the held document in place. While a validation holds
+    /// its snapshot, that edit has to produce a new document, or the snapshot
+    /// would change under the validation and still look current.
+    #[test]
+    fn an_edit_during_validation_leaves_the_snapshot_stale() {
+        let (documents, uri) = held("query Q { a }");
+        let validated = snapshot(&documents, &uri);
+
+        {
+            let mut entry = documents.get_mut(&uri).unwrap();
+            let doc = Arc::make_mut(&mut entry);
+            doc.apply_change_from_thread_local(
+                &TextDocumentContentChangeEvent {
+                    range: None,
+                    range_length: None,
+                    text: "query Q { b }".to_string(),
+                },
+                2,
+            );
+        }
+
+        assert!(!is_current(&documents, &uri, &validated));
+        assert!(is_current(&documents, &uri, &snapshot(&documents, &uri)));
+    }
+
+    #[test]
+    fn a_closed_document_is_not_current() {
+        let (documents, uri) = held("query Q { a }");
+        let validated = snapshot(&documents, &uri);
+        documents.remove(&uri);
+        assert!(!is_current(&documents, &uri, &validated));
     }
 }
