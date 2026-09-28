@@ -908,7 +908,9 @@ fragment ReconcileUser on User {
         let schema = Schema::parse(SCHEMA, "schema.graphql").unwrap();
         let valid_schema = schema.validate().expect("schema should be valid");
 
-        let path = Path::new("/reconcile.graphql");
+        // Absolute on every platform, which a URI needs; nothing is read from it.
+        let path_buf = std::env::temp_dir().join("reconcile.graphql");
+        let path = path_buf.as_path();
         let uri = graphox_core::utils::path_to_uri(path).expect("path should map to a URI");
         let doc = DocumentState::new_from_thread_local(uri, DOCUMENT, PositionEncodingKind::UTF8);
 
