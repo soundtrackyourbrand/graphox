@@ -147,16 +147,10 @@ fn an_operation_that_expands_differently_per_project_needs_a_path() {
 
     assert_eq!(out.status, Some(1), "{}", out.stdout);
     assert!(out.stderr.contains("expands differently"), "{}", out.stderr);
-    assert!(
-        out.stderr.contains("apps/one/zone.graphql"),
-        "{}",
-        out.stderr
-    );
-    assert!(
-        out.stderr.contains("apps/two/zone.graphql"),
-        "{}",
-        out.stderr
-    );
+    // Paths are printed in the platform's own form.
+    let listed = out.stderr.replace('\\', "/");
+    assert!(listed.contains("apps/one/zone.graphql"), "{}", out.stderr);
+    assert!(listed.contains("apps/two/zone.graphql"), "{}", out.stderr);
     assert!(out.stdout.is_empty(), "{}", out.stdout);
 }
 
