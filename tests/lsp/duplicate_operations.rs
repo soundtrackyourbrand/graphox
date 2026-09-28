@@ -267,3 +267,102 @@ async fn test_duplicate_operation_name_clears_after_deleted_file_closes() {
         last_diags_json
     );
 }
+
+async fn scanned_service(
+    config: graphox::Config,
+) -> tower_lsp_server::LspService<crate::support::LspBackend> {
+    let (mut service, _handle) = crate::support::create_service(config);
+    lsp_initialize_sequence(&mut service).await;
+    let backend = service.inner();
+    assert!(
+        crate::support::wait_for_condition(|| backend
+            .workspace_loaded
+            .load(std::sync::atomic::Ordering::SeqCst))
+        .await,
+        "workspace scan did not finish"
+    );
+    service
+}
+
+fn duplicate_messages(backend: &graphox::Backend, uri: &Uri) -> Vec<String> {
+    backend
+        .diagnostic_cache
+        .get(uri)
+        .map(|entry| {
+            entry
+                .value()
+                .2
+                .iter()
+                .map(|d| d.message.clone())
+                .filter(|m| m.contains("Duplicate operation name"))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The scan finds duplicates among documents nobody has opened: it lists every
+/// document it indexes under its operation names.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(10000)]
+async fn test_duplicate_operation_names_found_by_the_scan_alone() {
+    let schema = "type User { id: ID! } type Query { user: User }";
+    let (tmpdir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let config = config.with_rules(RulesConfig::default().with_unique_operation_name(true));
+    let first = write_project_file(&tmpdir, "first.graphql", "query Shared { user { id } }");
+    let second = write_project_file(&tmpdir, "second.graphql", "query Shared { user { id } }");
+
+    let service = scanned_service(config).await;
+    let backend = service.inner();
+
+    assert_eq!(duplicate_messages(backend, &first).len(), 1, "first");
+    assert_eq!(duplicate_messages(backend, &second).len(), 1, "second");
+}
+
+/// The scan can reach a document that is already listed: a watched change
+/// handled while the scan runs indexes it first. Replacing its entries rather
+/// than adding to them keeps it from being its own duplicate.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(10000)]
+async fn test_a_document_listed_before_the_scan_is_not_its_own_duplicate() {
+    let schema = "type User { id: ID! } type Query { user: User }";
+    let (tmpdir, config) = make_temp_project_with_schema(schema, "**/*.graphql");
+    let config = config.with_rules(RulesConfig::default().with_unique_operation_name(true));
+    let solo = write_project_file(&tmpdir, "solo.graphql", "query Solo { user { id } }");
+
+    let (mut service, _handle) = crate::support::create_service(config.clone());
+    {
+        // What handling a watched change to the file does, before the scan.
+        let backend = service.inner();
+        let doc = graphox::DocumentState::new_from_thread_local(
+            solo.clone(),
+            "query Solo { user { id } }",
+            PositionEncodingKind::UTF16,
+        );
+        graphox_lsp::backend::helpers::update_operation_name_index(
+            &backend.operation_names,
+            &config,
+            &solo,
+            None,
+            doc.operations(),
+        );
+        assert_eq!(
+            backend.operation_names.get("Solo").map(|e| e.len()),
+            Some(1)
+        );
+    }
+    lsp_initialize_sequence(&mut service).await;
+    let backend = service.inner();
+    assert!(
+        crate::support::wait_for_condition(|| backend
+            .workspace_loaded
+            .load(std::sync::atomic::Ordering::SeqCst))
+        .await,
+        "workspace scan did not finish"
+    );
+
+    assert_eq!(
+        backend.operation_names.get("Solo").map(|e| e.len()),
+        Some(1)
+    );
+    assert!(duplicate_messages(backend, &solo).is_empty());
+}
