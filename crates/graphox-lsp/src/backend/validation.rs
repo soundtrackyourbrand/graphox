@@ -244,19 +244,28 @@ pub async fn validate_uris(
     // Publish and cache results sequentially (async)
     for (idx, (uri, doc, diagnostics)) in results.into_iter().enumerate() {
         let version = doc.version;
-        if !is_current(params.documents, &uri, &doc) {
+        let committed = match diagnostic_cache {
+            // Checked while holding the cache entry, so no newer result for the
+            // URI can be committed between the check and the insert. Nothing
+            // else holds a document while taking a cache entry, so holding the
+            // entry while reading the document cannot deadlock.
+            Some(cache) => {
+                let entry = cache.entry(uri.clone());
+                let current = is_current(params.documents, &uri, &doc);
+                if current {
+                    entry.insert((version, params.result_id_epoch, diagnostics.clone()));
+                }
+                current
+            }
+            None => is_current(params.documents, &uri, &doc),
+        };
+        if !committed {
             continue;
         }
 
-        // Cache diagnostics for pull-based diagnostics
-        if let Some(cache) = diagnostic_cache {
-            cache.insert(
-                uri.clone(),
-                (version, params.result_id_epoch, diagnostics.clone()),
-            );
-        }
-
-        if use_push {
+        // Checked again just before sending: no lock can be held across the
+        // send, and the document may have been replaced since the insert.
+        if use_push && is_current(params.documents, &uri, &doc) {
             params
                 .client
                 .publish_diagnostics(uri, diagnostics, Some(version))

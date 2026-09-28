@@ -604,14 +604,19 @@ async fn validate_all_documents_cancellable(
     for (uri, doc, diagnostics) in staged_diagnostics {
         // A document opened or edited while the scan validated it has been
         // validated again since; the scan's result for it is stale.
-        if !super::validation::is_current(&params.documents, &uri, &doc) {
-            continue;
-        }
         let version = doc.version;
-        params
-            .diagnostic_cache
-            .insert(uri.clone(), (version, result_id_epoch, diagnostics.clone()));
-        if !params.supports_pull_diagnostics {
+        {
+            // As in `validation::validate_uris`: the check and the insert happen
+            // under the cache entry, so no newer result can land in between.
+            let entry = params.diagnostic_cache.entry(uri.clone());
+            if !super::validation::is_current(&params.documents, &uri, &doc) {
+                continue;
+            }
+            entry.insert((version, result_id_epoch, diagnostics.clone()));
+        }
+        if !params.supports_pull_diagnostics
+            && super::validation::is_current(&params.documents, &uri, &doc)
+        {
             client
                 .publish_diagnostics(uri, diagnostics, Some(version))
                 .await;
