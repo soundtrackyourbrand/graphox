@@ -305,7 +305,28 @@ async fn perform_workspace_scan(params: WorkspaceScanParams) {
         // Only insert if the document is not already open in the editor
         if !params.open_documents.contains(&uri) {
             params.documents.insert(uri.clone(), Arc::new(doc.clone()));
-            params.metadata.insert(uri.clone(), metadata);
+            let previous = params.metadata.insert(uri.clone(), metadata);
+
+            // Duplicate operation names are found through this index, so a
+            // document the scan found but nobody opened has to be in it too.
+            // The document may already be listed, from a change handled during
+            // the scan or an earlier scan, so its entries under its previous
+            // and current names are replaced rather than added to.
+            let mut listed: Vec<Arc<str>> = previous
+                .map(|m| crate::backend::helpers::named_operation_names(&m.operations).to_vec())
+                .unwrap_or_default();
+            listed.extend(
+                crate::backend::helpers::named_operation_names(&doc.operations)
+                    .iter()
+                    .cloned(),
+            );
+            crate::backend::helpers::update_operation_name_index(
+                &params.operation_names,
+                &params.config,
+                &uri,
+                Some(&listed),
+                &doc.operations,
+            );
 
             for frag in doc.fragments.iter() {
                 params
