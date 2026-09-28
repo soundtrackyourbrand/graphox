@@ -980,6 +980,7 @@ dependencies = [
  "dashmap",
  "graphox-core",
  "log",
+ "ls-types",
  "ntest",
  "pathdiff",
 ]

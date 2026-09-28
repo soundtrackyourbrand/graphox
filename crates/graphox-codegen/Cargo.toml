@@ -19,3 +19,4 @@ pathdiff = { workspace = true }
 
 [dev-dependencies]
 ntest = "0.9"
+ls-types = { workspace = true }

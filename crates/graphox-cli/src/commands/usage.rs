@@ -4,7 +4,7 @@ use graphox_core::engine::Engine;
 use graphox_features::analysis::DocumentSource;
 use graphox_features::analysis::usage::{self, FieldUsage, Usage};
 
-use super::{build_validated_schemas, documents_by_schema};
+use super::{build_validated_schemas, documents_by_schema, escape, json_strings, plural, take};
 
 pub struct UsageParams {
     /// Restrict to projects whose include path contains this, so `--app
@@ -41,29 +41,9 @@ pub async fn run_usage(config: Config, params: UsageParams) {
     );
     let schemas = build_validated_schemas(&config);
 
-    // Which projects the `--app` scope admits. A definition outside them is not
-    // a consumer for this run, so counts read as "usage within that app".
-    let in_scope: Vec<bool> = config
-        .projects()
-        .iter()
-        .map(|project| match &params.app {
-            Some(needle) => project.include().as_key().contains(needle.as_str()),
-            None => true,
-        })
-        .collect();
-
-    if params.app.is_some() && !in_scope.iter().any(|scoped| *scoped) {
-        eprintln!(
-            "{}: no project matched --app '{}'. Known projects:",
-            "Error".red(),
-            params.app.as_deref().unwrap_or_default()
-        );
-        for project in config.projects() {
-            eprintln!("  {}", project.include().as_key());
-        }
-        graphox_core::utils::flush_stdio();
-        std::process::exit(1);
-    }
+    // A definition outside the scope is not a consumer for this run, so counts
+    // read as "usage within that app".
+    let in_scope = super::projects_in_scope(&config, params.app.as_deref());
 
     let mut analyses: Vec<(String, Usage)> = Vec::new();
     for (schema_key, files) in documents_by_schema(&config, &workspace) {
@@ -117,22 +97,6 @@ fn rows<'a>(analysis: &'a Usage, params: &UsageParams) -> Vec<Row<'a>> {
         })
         .filter(|row| !params.unused || row.is_unused())
         .collect()
-}
-
-fn plural(count: usize, noun: &str) -> String {
-    if count == 1 {
-        format!("{count} {noun}")
-    } else {
-        format!("{count} {noun}s")
-    }
-}
-
-fn take<T>(items: Vec<T>, limit: usize) -> Vec<T> {
-    if limit == 0 {
-        items
-    } else {
-        items.into_iter().take(limit).collect()
-    }
 }
 
 fn print_human(config: &Config, analyses: &[(String, Usage)], params: &UsageParams) {
@@ -285,30 +249,6 @@ fn print_human(config: &Config, analyses: &[(String, Usage)], params: &UsagePara
             );
         }
     }
-}
-
-fn escape(value: &str) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    for ch in value.chars() {
-        match ch {
-            '"' => out.push_str("\\\""),
-            '\\' => out.push_str("\\\\"),
-            '\n' => out.push_str("\\n"),
-            '\r' => out.push_str("\\r"),
-            '\t' => out.push_str("\\t"),
-            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
-            c => out.push(c),
-        }
-    }
-    out
-}
-
-fn json_strings(values: impl IntoIterator<Item = String>) -> String {
-    let items: Vec<String> = values
-        .into_iter()
-        .map(|v| format!("\"{}\"", escape(&v)))
-        .collect();
-    format!("[{}]", items.join(","))
 }
 
 fn print_json(config: &Config, analyses: &[(String, Usage)], params: &UsageParams) {

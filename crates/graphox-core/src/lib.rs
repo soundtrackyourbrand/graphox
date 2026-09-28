@@ -1,5 +1,6 @@
 pub mod apollo_ast;
 pub mod apollo_messages;
+pub mod ast_printer;
 pub mod config;
 pub mod document;
 pub mod engine;
