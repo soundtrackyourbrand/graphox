@@ -1,15 +1,17 @@
 # Analyzing
 
 `graphox analyze` inspects how a workspace uses GraphQL. Its tools are reading
-tools, not gates: nothing they find fails the command, though asking for a scope
-that matches nothing — an `--app` naming no project — is still an error. They
-are meant to be run by hand while deciding what to change.
+tools, not gates: nothing they find fails the command, though a question they
+cannot answer — an `--app` naming no project, an operation that does not
+exist — is still an error. They are meant to be run by hand while deciding what
+to change.
 
 | Tool | Question it answers |
 |------|---------------------|
 | [`analyze selections`](#selections) | What is written more than once, and should be a fragment? |
 | [`analyze usage`](#usage) | What does the workspace actually select, and who selects it? |
 | [`analyze operations`](#operations) | What does each operation cost the server to answer? |
+| [`analyze expand`](#expand) | What does the server receive for this operation? |
 | [`analyze codegen`](#codegen) | What does the generated TypeScript weigh, and which definition wrote it? |
 
 ---
@@ -211,6 +213,47 @@ saying so, an operation whose fragment is missing would read as a cheap one.
 
 `--limit` shapes the terminal view only. `--json` always emits every matching
 operation, plus an `unparsed` array of files whose GraphQL did not parse.
+
+---
+
+## Expand
+
+Prints one operation as the server receives it: the operation followed by
+every fragment it spreads, directly or through another fragment.
+
+```bash
+graphox analyze expand AccountOverview                         # searched in every project
+graphox analyze expand AccountOverview apps/business           # in the projects under a directory
+graphox analyze expand AccountOverview src/account/overview.ts # in the project a file belongs to
+graphox analyze expand AccountOverview --json | curl -H 'content-type: application/json' -d @- $API
+```
+
+stdout carries the document and nothing else, so it can be piped on. `--json`
+prints the request body a client posts, `{"operationName": ..., "query": ...}`,
+without the variables.
+
+### The document codegen emits
+
+The text is printed from the document codegen generates, laid out as
+graphql-js `print` lays it out, so it is the request rather than the source.
+Codegen settings that shape the document apply: with `inline_fragments` the
+fragments are inlined rather than appended, `emit_ast_aliases: false` drops
+aliases, and `@public` is left out as a directive only graphox reads.
+
+A spread resolves through the fragments the operation's project can see, as it
+does in codegen. A spread that resolves to nothing is an error rather than a
+document with a fragment missing, since no server would accept that one.
+
+### Choosing the project
+
+The path is a project directory or a file. Either way it only chooses projects:
+the operation is looked up anywhere in them, so any file of the project will
+do. Without a path every project is searched.
+
+Two projects can define the same operation name, or share a file through
+overlapping `include` patterns. That only needs settling when they expand it
+differently: then nothing is printed, and each place is listed so a path can
+pick one.
 
 ---
 

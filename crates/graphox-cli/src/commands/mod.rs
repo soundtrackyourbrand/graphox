@@ -3,6 +3,7 @@ pub mod benchmark;
 pub mod check;
 pub mod codegen;
 pub mod codegen_weight;
+pub mod expand;
 pub mod operations;
 pub(crate) mod setup;
 pub mod usage;
@@ -12,6 +13,7 @@ pub use benchmark::run_benchmark;
 pub use check::run_check;
 pub use codegen::{CodegenParams, run_codegen};
 pub use codegen_weight::{CodegenWeightParams, run_codegen_weight};
+pub use expand::{ExpandParams, run_expand};
 pub use operations::{OperationsParams, run_operations};
 pub use usage::{UsageParams, run_usage};
 
@@ -26,8 +28,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 /// The directory given as `[PATH]` to `check` and `codegen`, which limits what
-/// they report or generate. The workspace is still the one whose config is
-/// found from the current directory.
+/// they report or generate, or the file or directory `analyze expand` resolves
+/// projects from. The workspace is still the one whose config is found from
+/// the current directory.
 #[derive(Clone, Debug)]
 pub struct PathScope {
     dir: std::path::PathBuf,

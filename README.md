@@ -169,6 +169,7 @@ graphox analyze selections                     # Selections that recur
 graphox analyze usage --type Account           # Field usage, by consumer count
 graphox analyze usage --app apps/business      # Scoped to one app
 graphox analyze operations --sort lists        # Request cost, most-multiplying first
+graphox analyze expand AccountOverview         # The request, with every fragment
 graphox analyze codegen --sort ast             # Generated weight, per definition
 
 # Run performance benchmarks

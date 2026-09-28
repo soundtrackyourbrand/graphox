@@ -1,7 +1,8 @@
 use clap::{Parser, Subcommand};
 use graphox_cli::{
-    AnalyzeParams, CodegenWeightParams, OperationsParams, UsageParams, run_analyze, run_benchmark,
-    run_check, run_codegen, run_codegen_weight, run_operations, run_usage,
+    AnalyzeParams, CodegenWeightParams, ExpandParams, OperationsParams, UsageParams, run_analyze,
+    run_benchmark, run_check, run_codegen, run_codegen_weight, run_expand, run_operations,
+    run_usage,
 };
 use graphox_core::Config;
 use graphox_lsp::run_lsp;
@@ -127,6 +128,17 @@ enum AnalyzeTool {
         #[arg(long, default_value_t = 20)]
         limit: usize,
         /// Emit results as JSON
+        #[arg(long)]
+        json: bool,
+    },
+    /// Print an operation as the server receives it, with every fragment it spreads
+    Expand {
+        /// Name of the operation to expand
+        operation: String,
+        /// A project directory, or a file in the project to resolve it in.
+        /// Every project is searched without one
+        path: Option<String>,
+        /// Print the request body a client posts: operationName and query
         #[arg(long)]
         json: bool,
     },
@@ -297,6 +309,22 @@ async fn main() {
                         name,
                         sort,
                         limit,
+                        json,
+                    },
+                )
+                .await;
+            }
+            AnalyzeTool::Expand {
+                operation,
+                path,
+                json,
+            } => {
+                let scope = scope_from(path.as_deref(), &config);
+                run_expand(
+                    config,
+                    ExpandParams {
+                        operation,
+                        scope,
                         json,
                     },
                 )
