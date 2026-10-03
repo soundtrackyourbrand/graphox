@@ -145,7 +145,7 @@
   },
   "dependencies": {},
   "devDependencies": {
-    "@vscode/vsce": "^3.9.2",
+    "@vscode/vsce": "^4.0.0",
     "@types/node": "^26.6.2",
     "@types/semver": "^7.8.0",
     "@types/vscode": "^1.75.0",
