@@ -22,5 +22,5 @@ sonic-rs = { workspace = true }
 tower-lsp-server = { workspace = true }
 
 [dev-dependencies]
-ntest = "0.9"
+ntest = "0.10"
 tempfile = "3.24.0"
