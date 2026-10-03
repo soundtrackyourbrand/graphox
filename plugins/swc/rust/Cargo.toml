@@ -27,7 +27,7 @@ swc_core = { version = "77.1.2", features = [
 # pipeline a real build uses. Dev-only: it is not unified into the wasm build.
 swc_core = { version = "77.1.2", features = ["ecma_transforms"] }
 tempfile = "3.24.0"
-ntest = "0.9"
+ntest = "0.10"
 serde_json = { workspace = true }
 graphox = { path = "../../.." }
 
