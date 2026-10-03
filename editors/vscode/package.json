@@ -150,7 +150,7 @@
     "@types/semver": "^7.8.0",
     "@types/vscode": "^1.75.0",
     "esbuild": "^0.28.2",
-    "vscode-languageclient": "^8.1.0",
+    "vscode-languageclient": "^10.1.2",
     "typescript": "^7.0.2"
   }
 }
