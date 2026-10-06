@@ -3196,9 +3196,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-graphql"
-version = "0.2.1"
+version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e54723227ad8bf2b5700331ea522785d545a7f9787ff7271044a8f9e24ea660b"
+checksum = "8e3628190860fa4d04703babffb9d70f4da8ee934b8f79423c86ce8f3c6214b6"
 dependencies = [
  "cc",
  "tree-sitter-language",
@@ -3206,9 +3206,9 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter-language"
-version = "0.1.7"
+version = "0.1.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "009994f150cc0cd50ff54917d5bc8bffe8cad10ca10d81c34da2ec421ae61782"
+checksum = "ca0d1bf6fdd806e43ae5198f82f527056d359def39e54e67a0f478ac09dac081"
 
 [[package]]
 name = "tree-sitter-typescript"
