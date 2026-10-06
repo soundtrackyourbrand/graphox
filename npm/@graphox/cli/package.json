@@ -3,10 +3,7 @@
   "version": "1.1.0",
   "description": "Graphox CLI - High-performance GraphQL toolset",
   "bin": {
-    "graphox": "./bin/graphox.js"
-  },
-  "scripts": {
-    "postinstall": "node postinstall.js"
+    "graphox": "bin/graphox.js"
   },
   "optionalDependencies": {
     "@graphox/darwin-arm64": "1.1.0",
@@ -21,8 +18,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/soundtrackyourbrand/graphox",
-    "directory": "npm/graphox-cli"
+    "url": "https://github.com/soundtrackyourbrand/graphox"
   },
   "keywords": [
     "graphql",
@@ -40,7 +36,6 @@
   },
   "files": [
     "bin/graphox.js",
-    "postinstall.js",
     "README.md",
     "graphox.schema.json"
   ],

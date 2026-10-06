@@ -17,7 +17,7 @@ const buildOptions = {
 };
 
 async function copySchema() {
-  const source = path.resolve(__dirname, '../../npm/graphox-cli/graphox.schema.json');
+  const source = path.resolve(__dirname, '../../npm/@graphox/cli/graphox.schema.json');
   const destination = path.resolve(__dirname, 'out/graphox.schema.json');
   
   if (!fs.existsSync(path.dirname(destination))) {

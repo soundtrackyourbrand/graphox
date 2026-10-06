@@ -82,49 +82,9 @@ Or, if you use VS Code with the [YAML extension](https://marketplace.visualstudi
 }
 ```
 
-## Local Development
-
-If you're developing the CLI itself, you can use a local build instead of downloading from releases:
-
-### Option 1: Using Environment Variable (Recommended)
-
-```bash
-# Build the CLI locally
-cd /path/to/graphox
-cargo build --release
-
-# Set environment variable to point to your local build
-export GRAPHOX_LOCAL_BUILD=/path/to/graphox/target/release/graphox
-
-# Now install the npm package - it will use your local build
-cd /path/to/your/project
-pnpm add /path/to/graphox/npm/graphox-cli
-```
-
-The install script will copy your local binary instead of downloading from GitHub releases.
-
-### Option 2: Using pnpm link
-
-```bash
-# In the graphox repository, build the binary
-cargo build --release
-
-# Set up the local binary
-./scripts/setup-npm-dev.sh
-
-# Link globally
-cd npm/graphox-cli
-pnpm link --global
-```
-
 ## Manual Binary Download
 
 If automatic installation fails, you can manually download binaries from the [releases page](https://github.com/soundtrackyourbrand/graphox/releases).
-
-## Environment Variables
-
-- `GRAPHOX_LOCAL_BUILD`: Path to a local binary to use instead of downloading (useful for development)
-- `GRAPHOX_DOWNLOAD_URL`: Override the download URL for the binary (useful for mirrors or custom builds)
 
 ## Repository
 

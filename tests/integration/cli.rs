@@ -1270,23 +1270,37 @@ fn test_multi_project_isolation() {
 fn test_npm_wrapper_execution() {
     let bin_path = env!("CARGO_BIN_EXE_graphox");
     let root_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
-    let wrapper_source_path = root_dir.join("npm/graphox-cli/bin/graphox.js");
+    let wrapper_source_path = root_dir.join("npm/@graphox/cli/bin/graphox.js");
 
     // Create a temporary directory to avoid dirtying the worktree
     let temp_dir = tempdir().expect("Failed to create temp dir");
-    let temp_bin_dir = temp_dir.path();
 
-    let wrapper_path = temp_bin_dir.join("graphox.js");
-
-    // Ensure binary name matches what wrapper expects
-    let binary_name = if cfg!(windows) {
-        "graphox-bin.exe"
-    } else {
-        "graphox-bin"
+    // Install the wrapper and the fresh build the way npm does: the wrapper
+    // resolves the binary from the platform package beside @graphox/cli.
+    let os = match std::env::consts::OS {
+        "macos" => "darwin",
+        "windows" => "win32",
+        os => os,
     };
-    let target_bin_path = temp_bin_dir.join(binary_name);
+    let cpu = match std::env::consts::ARCH {
+        "x86_64" => "x64",
+        "aarch64" => "arm64",
+        arch => arch,
+    };
+    let scope_dir = temp_dir.path().join("node_modules/@graphox");
+    let wrapper_dir = scope_dir.join("cli/bin");
+    let platform_dir = scope_dir.join(format!("{os}-{cpu}"));
+    std::fs::create_dir_all(&wrapper_dir).expect("Failed to create wrapper dir");
+    std::fs::create_dir_all(&platform_dir).expect("Failed to create platform dir");
 
-    // Copy the wrapper and the fresh build to the temp directory
+    let wrapper_path = wrapper_dir.join("graphox.js");
+    let binary_name = if cfg!(windows) {
+        "graphox.exe"
+    } else {
+        "graphox"
+    };
+    let target_bin_path = platform_dir.join(binary_name);
+
     std::fs::copy(wrapper_source_path, &wrapper_path).expect("Failed to copy wrapper to temp dir");
     std::fs::copy(bin_path, &target_bin_path).expect("Failed to copy binary to temp dir");
 

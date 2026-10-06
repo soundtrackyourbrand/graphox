@@ -84,12 +84,12 @@ if [ -f "editors/vscode/package.json" ]; then
 fi
 
 # Update version in NPM CLI package.json and its optionalDependencies
-if [ -f "npm/graphox-cli/package.json" ]; then
+if [ -f "npm/@graphox/cli/package.json" ]; then
     # Update main version
-    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/graphox-cli/package.json
+    sed -i.bak "s/\"version\": \"$CURRENT_VERSION\"/\"version\": \"$NEW_VERSION\"/" npm/@graphox/cli/package.json
     # Update optionalDependencies versions
-    sed -i.bak "s/\"@graphox\/\(.*\)\": \"$CURRENT_VERSION\"/\"@graphox\/\1\": \"$NEW_VERSION\"/g" npm/graphox-cli/package.json
-    rm npm/graphox-cli/package.json.bak
+    sed -i.bak "s/\"@graphox\/\(.*\)\": \"$CURRENT_VERSION\"/\"@graphox\/\1\": \"$NEW_VERSION\"/g" npm/@graphox/cli/package.json
+    rm npm/@graphox/cli/package.json.bak
 fi
 
 # Update Cargo.lock
@@ -111,8 +111,8 @@ fi
 if [ -f "editors/vscode/package.json" ]; then
     git add editors/vscode/package.json
 fi
-if [ -f "npm/graphox-cli/package.json" ]; then
-    git add npm/graphox-cli/package.json
+if [ -f "npm/@graphox/cli/package.json" ]; then
+    git add npm/@graphox/cli/package.json
 fi
 git commit -m "chore: bump version to $NEW_VERSION"
 

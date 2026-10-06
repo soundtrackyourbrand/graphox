@@ -47,27 +47,29 @@ cargo build
 ./target/debug/graphox codegen
 ```
 
-**Option 2: Using the npm package with local build**
-```bash
-# Automated setup (Recommended)
-./scripts/setup-npm-dev.sh
+**Option 2: Installing the npm packages in a project**
 
-# Manual setup
+`cargo npm generate` (from [cargo-npm](https://crates.io/crates/cargo-npm)) writes
+`@graphox/cli` and the package for your platform under `npm/@graphox/`. Install
+both in the project as files; the override makes `@graphox/cli` use your local
+platform package instead of the published one:
+
+```bash
 cargo build --release
-export GRAPHOX_LOCAL_BUILD=$(pwd)/target/release/graphox
-cd npm/graphox-cli
-node postinstall.js
+cargo npm generate -p graphox
+(cd npm/@graphox/cli && npm pack --pack-destination /tmp)
+(cd npm/@graphox/darwin-arm64 && npm pack --pack-destination /tmp)  # your platform
 
-# To test globally
-pnpm link --global
-```
-
-Now you can link it in any test project:
-```bash
 cd /path/to/test/project
-pnpm link --global @graphox/cli
+# pnpm-workspace.yaml:
+#   overrides:
+#     '@graphox/darwin-arm64': 'file:/tmp/graphox-darwin-arm64-<version>.tgz'
+pnpm add file:/tmp/graphox-cli-<version>.tgz
 graphox check
 ```
+
+Repeat the build, generate and pack steps, then `pnpm install --force`, after
+each change.
 
 ### Editor Testing
 
