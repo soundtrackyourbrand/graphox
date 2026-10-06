@@ -319,6 +319,9 @@ jobs:
       id-token: write
     steps:
       - uses: actions/checkout@v7
+        with:
+          # `cargo install` below runs third-party build scripts.
+          persist-credentials: false
 
       - name: Setup Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2
