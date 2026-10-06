@@ -3,7 +3,7 @@
 # deliberately, and bumping them would change codegen output and break the
 # baselines.
 #
-# npm/graphox-cli is also deliberately absent: its only dependencies are
+# npm/@graphox/cli is also deliberately absent: its only dependencies are
 # optionalDependencies on its own @graphox/* platform packages, pinned to the
 # current release and rewritten by scripts/release.sh. Dependabot would fight
 # the release script there.
