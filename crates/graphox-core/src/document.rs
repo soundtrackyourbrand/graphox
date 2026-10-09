@@ -1259,14 +1259,11 @@ impl DocumentState {
 
                     let mut walker = container.walk();
                     for child in container.children(&mut walker) {
-                        if child.kind() == "description" {
-                            if let Some(sv) = child.child_by_field_name("content") {
-                                description =
-                                    Some(self.get_node_text(sv, offset).trim_matches('"').into());
-                            } else if let Some(sv) = child.child(0) {
-                                description =
-                                    Some(self.get_node_text(sv, offset).trim_matches('"').into());
-                            }
+                        if child.kind() == "description"
+                            && let Some(sv) = child.child(0)
+                        {
+                            description =
+                                Some(self.get_node_text(sv, offset).trim_matches('"').into());
                         }
                     }
 
