@@ -4,6 +4,7 @@ use crate::{Config, config::ProjectConfig};
 use ahash::AHashMap;
 use colored::*;
 use ls_types::*;
+use rayon::prelude::*;
 use std::collections::VecDeque;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
@@ -812,16 +813,11 @@ fn prune_orphaned_codegen_in_dir(
     dir: &Path,
     recursive: bool,
     remove_empty_dirs: bool,
-    keep: &ahash::AHashSet<PathBuf>,
+    keep_canon: &ahash::AHashSet<PathBuf>,
 ) -> Vec<PathBuf> {
     if !dir.is_dir() {
         return Vec::new();
     }
-
-    let keep_canon: ahash::AHashSet<PathBuf> = keep
-        .iter()
-        .filter_map(|p| std::fs::canonicalize(p).ok())
-        .collect();
 
     let mut builder = ignore::WalkBuilder::new(dir);
     builder
@@ -963,6 +959,15 @@ pub fn prune_orphaned_outputs(
     recursive_roots.dedup();
     colocated_dirs.sort();
     colocated_dirs.dedup();
+
+    // Canonicalized once for every directory swept below: each path costs a
+    // `realpath`, and a workspace keeps hundreds of outputs.
+    let keep: ahash::AHashSet<PathBuf> = keep
+        .par_iter()
+        .filter_map(|p| std::fs::canonicalize(p).ok())
+        .collect::<Vec<_>>()
+        .into_iter()
+        .collect();
 
     let mut removed: Vec<PathBuf> = Vec::new();
 
