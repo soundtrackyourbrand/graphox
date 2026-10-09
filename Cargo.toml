@@ -117,7 +117,7 @@ log = { workspace = true }
 # Test-only: tests/support uses once_cell::sync::{OnceCell, Lazy}.
 once_cell = { workspace = true }
 libc = "0.2"
-ntest = "0.9"
+ntest = "0.10"
 tempfile = "3.24.0"
 tower-service = "0.3.3"
 futures-util = "0.3"
