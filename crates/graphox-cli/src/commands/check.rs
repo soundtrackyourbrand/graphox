@@ -58,6 +58,11 @@ pub async fn run_check(
     let mut global_public_fragments: Vec<FragmentCompletionInfo> = Vec::new();
 
     for doc in workspace_metadata.documents.values() {
+        // Resolving the project canonicalizes the path, a `realpath` per document,
+        // so skip it for the many documents that hold no public fragment.
+        if !doc.fragments.iter().any(|frag| frag.is_public) {
+            continue;
+        }
         let package_root = doc.package_root.clone();
         let project_import = cfg
             .get_project_for_path(&graphox_core::utils::uri_to_path(&doc.uri).unwrap_or_default())
