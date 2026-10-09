@@ -3,6 +3,7 @@ use crate::queries::*;
 use crate::{Config, config::ProjectConfig};
 use ahash::AHashMap;
 use colored::*;
+use dashmap::DashMap;
 use ls_types::*;
 use rayon::prelude::*;
 use std::collections::VecDeque;
@@ -571,104 +572,257 @@ fn should_skip_project_walk_dir(
     })
 }
 
+/// One project's part in a walk: what it includes and excludes, and where its
+/// walk starts.
+struct ProjectWalk<'a> {
+    include_patterns: &'a [String],
+    exclude_patterns: &'a [String],
+    include_set: globset::GlobSet,
+    exclude_set: globset::GlobSet,
+    /// Directories to walk, none inside another.
+    roots: Vec<PathBuf>,
+    /// Non-glob includes naming a file, collected without walking.
+    direct_files: Vec<PathBuf>,
+}
+
+impl<'a> ProjectWalk<'a> {
+    fn new(
+        include_patterns: &'a [String],
+        exclude_patterns: &'a [String],
+        base_dir: &Path,
+    ) -> Self {
+        use globset::{Glob, GlobSetBuilder};
+
+        let mut include_builder = GlobSetBuilder::new();
+        let mut roots = Vec::new();
+        let mut direct_files = Vec::new();
+
+        for p in include_patterns {
+            let p_clean = p.strip_prefix("./").unwrap_or(p);
+
+            let is_glob = p_clean.contains('*')
+                || p_clean.contains('?')
+                || p_clean.contains('[')
+                || p_clean.contains('{');
+
+            if !is_glob {
+                let path = base_dir.join(p_clean);
+                if path.is_file() {
+                    direct_files.push(path);
+                    continue;
+                }
+                if path.is_dir() {
+                    roots.push(path.clone());
+                    let mut p_glob = p_clean.to_string();
+                    if !p_glob.ends_with('/') && !p_glob.is_empty() {
+                        p_glob.push('/');
+                    }
+                    p_glob.push_str("**/*");
+                    if let Ok(g) = Glob::new(&p_glob) {
+                        include_builder.add(g);
+                    }
+                    continue;
+                }
+            }
+
+            if let Ok(g) = Glob::new(p) {
+                include_builder.add(g);
+            }
+            if p_clean != p
+                && let Ok(g) = Glob::new(p_clean)
+            {
+                include_builder.add(g);
+            }
+
+            let root = get_glob_root(p_clean);
+            let root_path = if root.as_os_str().is_empty() {
+                base_dir.to_path_buf()
+            } else {
+                base_dir.join(root)
+            };
+            if root_path.exists() {
+                roots.push(root_path);
+            }
+        }
+
+        let mut exclude_builder = GlobSetBuilder::new();
+        for p in exclude_patterns {
+            let p_clean = p.strip_prefix("./").unwrap_or(p);
+            if let Ok(g) = Glob::new(p_clean) {
+                exclude_builder.add(g);
+            }
+            if p != p_clean
+                && let Ok(g) = Glob::new(p)
+            {
+                exclude_builder.add(g);
+            }
+        }
+
+        let include_set = include_builder
+            .build()
+            .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
+        let exclude_set = exclude_builder
+            .build()
+            .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
+
+        Self {
+            include_patterns,
+            exclude_patterns,
+            include_set,
+            exclude_set,
+            roots: outermost_paths(roots),
+            direct_files,
+        }
+    }
+
+    fn is_root(&self, path: &Path) -> bool {
+        self.roots.iter().any(|root| same_path(path, root))
+    }
+
+    fn matches_file(&self, path: &Path, base_dir: &Path) -> bool {
+        let include_set = &self.include_set;
+        let exclude_set = &self.exclude_set;
+        let mut matched = include_set.is_match(path) || include_set.is_match(to_posix_path(path));
+
+        if !matched && is_relevant_file(path) {
+            let abs_path = canonicalize_cached(path);
+            matched =
+                include_set.is_match(&abs_path) || include_set.is_match(to_posix_path(&abs_path));
+        }
+
+        if !matched
+            && is_relevant_file(path)
+            && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
+        {
+            let posix_rel_path = to_posix_path(&rel_to_base);
+            matched = include_set.is_match(&rel_to_base) || include_set.is_match(posix_rel_path);
+        }
+
+        if !matched
+            && is_relevant_file(path)
+            && let Some(file_name) = path.file_name()
+            && include_set.is_match(file_name)
+        {
+            matched = true;
+        }
+
+        if !matched || !is_relevant_file(path) {
+            return false;
+        }
+
+        let excluded = exclude_set.is_match(path)
+            || exclude_set.is_match(to_posix_path(path))
+            || pathdiff::diff_paths(path, base_dir).is_some_and(|rel_to_base| {
+                exclude_set.is_match(&rel_to_base)
+                    || exclude_set.is_match(to_posix_path(&rel_to_base))
+            });
+        !excluded
+    }
+}
+
+/// `paths` without any that sit inside another, so no directory is walked twice.
+fn outermost_paths(mut paths: Vec<PathBuf>) -> Vec<PathBuf> {
+    paths.sort();
+    let mut outermost: Vec<PathBuf> = Vec::new();
+    for path in paths {
+        if !outermost.iter().any(|p| path_starts_with(&path, p)) {
+            outermost.push(path);
+        }
+    }
+    outermost
+}
+
+/// The same path under `path_starts_with`'s rules, which on macOS ignore case.
+fn same_path(a: &Path, b: &Path) -> bool {
+    path_starts_with(a, b) && path_starts_with(b, a)
+}
+
 pub fn get_project_files(
     include_patterns: &[String],
     exclude_patterns: &[String],
     base_dir: &Path,
     instrumentation: Option<ProjectWalkInstrumentation>,
 ) -> Vec<PathBuf> {
-    use globset::{Glob, GlobSetBuilder};
+    let project = ProjectWalk::new(include_patterns, exclude_patterns, base_dir);
+    walk_projects(&[project], base_dir, &[instrumentation])
+        .pop()
+        .unwrap_or_default()
+}
+
+/// Collects every project's files in one walk, returned in project order.
+///
+/// Walking each project separately pays the walker's start-up once per project,
+/// which dominates for small ones. One walk over all their roots pays it once.
+pub fn get_workspace_scan_files(
+    config: &Config,
+    mut instrumentation: impl FnMut(usize, &ProjectConfig) -> Option<ProjectWalkInstrumentation>,
+) -> Vec<Vec<PathBuf>> {
+    let patterns: Vec<_> = config
+        .projects()
+        .iter()
+        .map(|project| project_scan_patterns(config, project))
+        .collect();
+    let projects: Vec<_> = patterns
+        .iter()
+        .map(|(includes, excludes)| ProjectWalk::new(includes, excludes, config.base_dir()))
+        .collect();
+    let instrumentation: Vec<_> = config
+        .projects()
+        .iter()
+        .enumerate()
+        .map(|(idx, project)| instrumentation(idx, project))
+        .collect();
+    walk_projects(&projects, config.base_dir(), &instrumentation)
+}
+
+/// Walks the roots of all `projects` at once and sorts each file into the
+/// projects that take it.
+///
+/// Each project still decides by its own excludes which directories it enters,
+/// so a directory is tracked with the projects that reached it: a file goes only
+/// to projects active in its directory, and a directory no project is active in
+/// is pruned, unless it leads to another project's root.
+fn walk_projects(
+    projects: &[ProjectWalk],
+    base_dir: &Path,
+    instrumentation: &[Option<ProjectWalkInstrumentation>],
+) -> Vec<Vec<PathBuf>> {
     use ignore::WalkBuilder;
 
-    let mut include_builder = GlobSetBuilder::new();
-    let mut roots = Vec::new();
-    let mut direct_files = Vec::new();
-
-    for p in include_patterns {
-        let p_clean = p.strip_prefix("./").unwrap_or(p);
-
-        let is_glob = p_clean.contains('*')
-            || p_clean.contains('?')
-            || p_clean.contains('[')
-            || p_clean.contains('{');
-
-        if !is_glob {
-            let path = base_dir.join(p_clean);
-            if path.is_file() {
-                direct_files.push(path);
-                continue;
-            }
-            if path.is_dir() {
-                roots.push(path.clone());
-                let mut p_glob = p_clean.to_string();
-                if !p_glob.ends_with('/') && !p_glob.is_empty() {
-                    p_glob.push('/');
-                }
-                p_glob.push_str("**/*");
-                if let Ok(g) = Glob::new(&p_glob) {
-                    include_builder.add(g);
-                }
-                continue;
-            }
+    let observe = |idx: usize, f: &dyn Fn(&ProjectWalkInstrumentation)| {
+        if let Some(Some(instrumentation)) = instrumentation.get(idx) {
+            f(instrumentation);
         }
+    };
 
-        if let Ok(g) = Glob::new(p) {
-            include_builder.add(g);
-        }
-        if p_clean != p
-            && let Ok(g) = Glob::new(p_clean)
-        {
-            include_builder.add(g);
-        }
-
-        let root = get_glob_root(p_clean);
-        let root_path = if root.as_os_str().is_empty() {
-            base_dir.to_path_buf()
+    for (idx, project) in projects.iter().enumerate() {
+        if project.roots.is_empty() {
+            observe(idx, &|i| {
+                i.log_no_roots(project.include_patterns, project.exclude_patterns)
+            });
         } else {
-            base_dir.join(root)
-        };
-        if root_path.exists() {
-            roots.push(root_path);
+            observe(idx, &|i| {
+                i.start(
+                    &project.roots,
+                    project.include_patterns,
+                    project.exclude_patterns,
+                )
+            });
         }
     }
 
-    let mut exclude_builder = GlobSetBuilder::new();
-    for p in exclude_patterns {
-        let p_clean = p.strip_prefix("./").unwrap_or(p);
-        if let Ok(g) = Glob::new(p_clean) {
-            exclude_builder.add(g);
-        }
-        if p != p_clean
-            && let Ok(g) = Glob::new(p)
-        {
-            exclude_builder.add(g);
-        }
-    }
+    let walk_roots = outermost_paths(
+        projects
+            .iter()
+            .flat_map(|project| project.roots.iter().cloned())
+            .collect(),
+    );
 
-    let include_set = include_builder
-        .build()
-        .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
-    let exclude_set = exclude_builder
-        .build()
-        .unwrap_or_else(|_| GlobSetBuilder::new().build().unwrap());
+    let (tx, rx) = std::sync::mpsc::channel::<(usize, PathBuf)>();
 
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    if !roots.is_empty() {
-        roots.sort();
-        let mut unique_roots: Vec<PathBuf> = Vec::new();
-        for root in roots {
-            if !unique_roots.iter().any(|r| path_starts_with(&root, r)) {
-                unique_roots.push(root);
-            }
-        }
-
-        if let Some(instrumentation) = instrumentation.as_ref() {
-            instrumentation.start(&unique_roots, include_patterns, exclude_patterns);
-        }
-
-        let mut walk_builder = WalkBuilder::new(&unique_roots[0]);
-        for root in &unique_roots[1..] {
+    if let Some((first, rest)) = walk_roots.split_first() {
+        let mut walk_builder = WalkBuilder::new(first);
+        for root in rest {
             walk_builder.add(root);
         }
 
@@ -678,98 +832,86 @@ pub fn get_project_files(
             .follow_links(true)
             .build_parallel();
 
-        let include_set_ref = &include_set;
-        let exclude_set_ref = &exclude_set;
-        let instrumentation_ref = instrumentation.clone();
+        // The projects active in each directory walked. The walker visits a
+        // directory before reading it, so a parent's entry is always in place
+        // before its children look it up.
+        let active_by_dir: DashMap<PathBuf, Arc<[usize]>> = DashMap::new();
+        let active_by_dir = &active_by_dir;
+        let observe = &observe;
 
         walk.run(|| {
             let tx = tx.clone();
-            let instrumentation = instrumentation_ref.clone();
             Box::new(move |entry| {
-                if let Ok(entry) = entry {
-                    let path = entry.path();
-                    if entry.file_type().is_some_and(|ft| ft.is_dir()) {
-                        let should_skip =
-                            should_skip_project_walk_dir(path, base_dir, exclude_set_ref);
-                        if let Some(instrumentation) = instrumentation.as_ref() {
-                            instrumentation.observe_dir(path, should_skip);
+                let Ok(entry) = entry else {
+                    return ignore::WalkState::Continue;
+                };
+                let path = entry.path();
+                let Some(file_type) = entry.file_type() else {
+                    return ignore::WalkState::Continue;
+                };
+                let inherited = path
+                    .parent()
+                    .and_then(|parent| active_by_dir.get(parent).map(|a| a.clone()));
+                let reached = |idx: usize| {
+                    inherited.as_ref().is_some_and(|a| a.contains(&idx))
+                        || (entry.depth() == 0 && projects[idx].is_root(path))
+                };
+
+                if file_type.is_dir() {
+                    let mut active = Vec::new();
+                    for (idx, project) in projects.iter().enumerate() {
+                        if !reached(idx) && !project.is_root(path) {
+                            continue;
                         }
-                        if should_skip {
-                            return ignore::WalkState::Skip;
+                        let skip =
+                            should_skip_project_walk_dir(path, base_dir, &project.exclude_set);
+                        observe(idx, &|i| i.observe_dir(path, skip));
+                        if !skip {
+                            active.push(idx);
                         }
                     }
-
-                    if entry.file_type().is_some_and(|ft| ft.is_file()) {
-                        let mut matched_file = false;
-                        let mut matched = include_set_ref.is_match(path)
-                            || include_set_ref.is_match(to_posix_path(path));
-
-                        if !matched && is_relevant_file(path) {
-                            let abs_path = canonicalize_cached(path);
-                            matched = include_set_ref.is_match(&abs_path)
-                                || include_set_ref.is_match(to_posix_path(&abs_path));
+                    let leads_to_root = projects.iter().any(|project| {
+                        project.roots.iter().any(|root| {
+                            path_starts_with(root, path) && !path_starts_with(path, root)
+                        })
+                    });
+                    if active.is_empty() && !leads_to_root {
+                        return ignore::WalkState::Skip;
+                    }
+                    active_by_dir.insert(path.to_path_buf(), active.into());
+                } else if file_type.is_file() {
+                    for (idx, project) in projects.iter().enumerate() {
+                        if !reached(idx) {
+                            continue;
                         }
-
-                        if !matched
-                            && is_relevant_file(path)
-                            && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
-                        {
-                            let posix_rel_path = to_posix_path(&rel_to_base);
-                            matched = include_set_ref.is_match(&rel_to_base)
-                                || include_set_ref.is_match(posix_rel_path);
+                        let matched = project.matches_file(path, base_dir);
+                        if matched {
+                            let send_path = if cfg!(windows) {
+                                canonicalize_cached(path)
+                            } else {
+                                path.to_owned()
+                            };
+                            let _ = tx.send((idx, send_path));
                         }
-
-                        if !matched
-                            && is_relevant_file(path)
-                            && let Some(file_name) = path.file_name()
-                            && include_set_ref.is_match(file_name)
-                        {
-                            matched = true;
-                        }
-
-                        if matched && is_relevant_file(path) {
-                            let mut excluded = exclude_set_ref.is_match(path)
-                                || exclude_set_ref.is_match(to_posix_path(path));
-                            if !excluded
-                                && let Some(rel_to_base) = pathdiff::diff_paths(path, base_dir)
-                                && (exclude_set_ref.is_match(&rel_to_base)
-                                    || exclude_set_ref.is_match(to_posix_path(&rel_to_base)))
-                            {
-                                excluded = true;
-                            }
-
-                            if !excluded {
-                                matched_file = true;
-                                let send_path = if cfg!(windows) {
-                                    canonicalize_cached(path)
-                                } else {
-                                    path.to_owned()
-                                };
-                                let _ = tx.send(send_path);
-                            }
-                        }
-
-                        if let Some(instrumentation) = instrumentation.as_ref() {
-                            instrumentation.observe_file(path, matched_file);
-                        }
+                        observe(idx, &|i| i.observe_file(path, matched));
                     }
                 }
                 ignore::WalkState::Continue
             })
         });
-    } else if let Some(instrumentation) = instrumentation.as_ref() {
-        instrumentation.log_no_roots(include_patterns, exclude_patterns);
     }
 
     drop(tx);
-    let mut files: Vec<PathBuf> = rx.into_iter().collect();
+    let mut files: Vec<Vec<PathBuf>> = vec![Vec::new(); projects.len()];
+    for (idx, path) in rx {
+        files[idx].push(path);
+    }
 
-    files.extend(direct_files);
-
-    files.sort();
-    files.dedup();
-    if let Some(instrumentation) = instrumentation.as_ref() {
-        instrumentation.finish(files.len());
+    for (idx, (project, files)) in projects.iter().zip(&mut files).enumerate() {
+        files.extend(project.direct_files.iter().cloned());
+        files.sort();
+        files.dedup();
+        observe(idx, &|i| i.finish(files.len()));
     }
     files
 }
@@ -1004,6 +1146,18 @@ pub fn get_project_scan_files(
     project: &ProjectConfig,
     instrumentation: Option<ProjectWalkInstrumentation>,
 ) -> Vec<PathBuf> {
+    let (abs_includes, abs_excludes) = project_scan_patterns(config, project);
+    get_project_files(
+        &abs_includes,
+        &abs_excludes,
+        config.base_dir(),
+        instrumentation,
+    )
+}
+
+/// A project's include and exclude patterns for the walk, made absolute, with its
+/// output directory and `__generated__` directories excluded.
+fn project_scan_patterns(config: &Config, project: &ProjectConfig) -> (Vec<String>, Vec<String>) {
     let abs_includes: Vec<String> = project
         .include()
         .patterns()
@@ -1041,12 +1195,7 @@ pub fn get_project_scan_files(
     abs_excludes.push("**/__generated__".to_string());
     abs_excludes.push("**/__generated__/**".to_string());
 
-    get_project_files(
-        &abs_includes,
-        &abs_excludes,
-        config.base_dir(),
-        instrumentation,
-    )
+    (abs_includes, abs_excludes)
 }
 
 /// A workspace's `.gitignore` rules, each file's patterns anchored at the
@@ -2202,6 +2351,45 @@ mod tests {
             base_dir,
             &exclude_set
         ));
+    }
+
+    #[test]
+    fn test_walk_projects_keeps_each_projects_excludes() {
+        let dir = tempfile::tempdir().unwrap();
+        let base = dir.path().canonicalize().unwrap();
+        for file in [
+            "app/src/main.ts",
+            "app/src/vendor/lib.ts",
+            "app/src/vendor/gql/ops.ts",
+            "other/src/other.ts",
+        ] {
+            let path = base.join(file);
+            std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+            std::fs::write(path, "gql``").unwrap();
+        }
+        let abs = |p: &str| to_posix_path(&base.join(p));
+
+        // `app` excludes `vendor`, yet `vendor/gql` is another project's root,
+        // so the shared walk still enters `vendor` but gives `app` nothing in it.
+        let app = ([abs("app/src")], [abs("app/src/vendor/**")]);
+        let vendor_gql = ([abs("app/src/vendor/gql")], []);
+        let other = ([abs("other/src")], []);
+        let projects = [
+            ProjectWalk::new(&app.0, &app.1, &base),
+            ProjectWalk::new(&vendor_gql.0, &vendor_gql.1, &base),
+            ProjectWalk::new(&other.0, &other.1, &base),
+        ];
+
+        let files = walk_projects(&projects, &base, &[None, None, None]);
+
+        assert_eq!(
+            files,
+            vec![
+                vec![base.join("app/src/main.ts")],
+                vec![base.join("app/src/vendor/gql/ops.ts")],
+                vec![base.join("other/src/other.ts")],
+            ]
+        );
     }
 
     #[test]

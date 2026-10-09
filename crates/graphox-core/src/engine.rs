@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::document::{DocumentLanguage, DocumentState, FragmentId, TransitiveDeps};
-use crate::utils::{WorkspaceScanInstrumentation, get_project_scan_files, has_generated_header};
+use crate::utils::{WorkspaceScanInstrumentation, get_workspace_scan_files, has_generated_header};
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::{Node, Schema, executable};
 use rayon::prelude::*;
@@ -307,26 +307,20 @@ impl Engine {
                 format!("projects={}", config.projects().len()),
             );
         }
-        let project_info: Vec<_> = config
-            .projects()
-            .iter()
-            .enumerate()
-            .map(|(project_idx, p)| {
-                // `get_project_scan_files` already uses a parallel walker, so keep project
-                // iteration itself serial to avoid nesting multiple filesystem thread pools.
-                let project_instrumentation = instrumentation.as_ref().map(|instrumentation| {
-                    instrumentation.project_walk(
-                        project_idx,
-                        &p.include().as_key(),
-                        config.get_project_codegen_enabled(p),
-                        p.output_dir(),
-                    )
-                });
-                (
-                    get_project_scan_files(config, p, project_instrumentation),
-                    p.import().map(String::from),
+        let project_files = get_workspace_scan_files(config, |project_idx, p| {
+            instrumentation.as_ref().map(|instrumentation| {
+                instrumentation.project_walk(
+                    project_idx,
+                    &p.include().as_key(),
+                    config.get_project_codegen_enabled(p),
+                    p.output_dir(),
                 )
             })
+        });
+        let project_info: Vec<_> = project_files
+            .into_iter()
+            .zip(config.projects())
+            .map(|(files, p)| (files, p.import().map(String::from)))
             .collect();
         timings.glob_resolution = start_glob.elapsed();
         if let Some(instrumentation) = instrumentation.as_ref() {
@@ -358,7 +352,7 @@ impl Engine {
                 format!("candidate_files={}", all_unique_paths.len()),
             );
         }
-        // `get_project_scan_files` already restricts to relevant files, so the paths
+        // `get_workspace_scan_files` already restricts to relevant files, so the paths
         // here are all relevant — no need to re-check `is_relevant_file`.
         let scanned: Vec<ScannedFile> = all_unique_paths
             .par_iter()
