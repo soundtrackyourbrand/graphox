@@ -206,6 +206,13 @@ pub async fn run_check(
         success = false;
     }
 
+    super::leave_for_exit((
+        workspace_metadata,
+        validated_schemas,
+        global_public_fragments,
+        global_used_fragments,
+    ));
+
     if !success {
         reporter.report_failure();
         graphox_core::utils::flush_stdio();

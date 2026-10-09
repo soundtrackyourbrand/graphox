@@ -177,6 +177,17 @@ pub(crate) fn mandated_fields_by_project(config: &Config) -> AHashMap<usize, AHa
         .collect()
 }
 
+/// Leaves `value` for the OS to reclaim when the process exits, instead of freeing
+/// it piece by piece. Freeing a parsed workspace visits every document and its
+/// syntax tree on one thread, which is tens of milliseconds at the end of a run.
+///
+/// Only for data a one-shot command holds until it exits: anywhere else this
+/// leaks, and anything with a `Drop` that does more than free memory would not
+/// run it.
+pub(crate) fn leave_for_exit<T>(value: T) {
+    std::mem::forget(value);
+}
+
 /// `count noun`, pluralised.
 pub(crate) fn plural(count: usize, noun: &str) -> String {
     if count == 1 {

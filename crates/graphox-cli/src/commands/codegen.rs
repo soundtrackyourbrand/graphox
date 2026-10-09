@@ -37,7 +37,7 @@ pub async fn run_codegen(
     scope: Option<super::PathScope>,
 ) {
     if !watch {
-        if !execute_codegen(config, verbose, clean, scope.as_ref()).await {
+        if !execute_codegen(config, verbose, clean, scope.as_ref(), true).await {
             eprintln!("{}", "Codegen failed.".red());
             graphox_core::utils::flush_stdio();
             std::process::exit(1);
@@ -47,7 +47,7 @@ pub async fn run_codegen(
 
     'watch_loop: loop {
         println!("{}", "Watching for changes...".bright_black());
-        let _ = execute_codegen(config.clone(), verbose, false, scope.as_ref()).await;
+        let _ = execute_codegen(config.clone(), verbose, false, scope.as_ref(), false).await;
 
         let (tx, mut rx) = tokio::sync::mpsc::channel(1);
         let (config_tx, mut config_rx) = tokio::sync::mpsc::channel(1);
@@ -145,7 +145,7 @@ pub async fn run_codegen(
                         "{}",
                         "\nChange detected, re-running codegen...".bright_black()
                     );
-                    let _ = execute_codegen(config.clone(), verbose, false, scope.as_ref()).await;
+                    let _ = execute_codegen(config.clone(), verbose, false, scope.as_ref(), false).await;
                 }
             }
         }
@@ -263,6 +263,7 @@ async fn execute_codegen(
     verbose: bool,
     clean: bool,
     scope: Option<&super::PathScope>,
+    exits_after: bool,
 ) -> bool {
     let mut success = true;
 
@@ -843,6 +844,12 @@ async fn execute_codegen(
     // of them is renamed. Sweep it now rather than making `--clean` the only remedy.
     if !clean && success {
         prune_orphaned_outputs(&cfg, &project_outputs, verbose);
+    }
+
+    // Watch mode runs this again, so only a run the process exits after may skip
+    // freeing the workspace.
+    if exits_after {
+        super::leave_for_exit(setup);
     }
 
     success
