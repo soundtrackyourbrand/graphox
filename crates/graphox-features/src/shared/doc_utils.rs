@@ -37,23 +37,17 @@ pub fn find_description(doc: &DocumentState, target_name: &str) -> Option<String
                         name = Some(doc.get_node_text(child, offset));
                     }
                     "enum_value" => {
-                        if let Some(n) = child.child_by_field_name("name") {
-                            name = Some(doc.get_node_text(n, offset));
-                        } else if let Some(n) = child.child(0) {
+                        if let Some(n) = child.child(0) {
                             name = Some(doc.get_node_text(n, offset));
                         }
                     }
                     "fragment_name" => {
-                        if let Some(n) = child.child_by_field_name("name") {
-                            name = Some(doc.get_node_text(n, offset));
-                        } else if let Some(n) = child.child(0) {
+                        if let Some(n) = child.child(0) {
                             name = Some(doc.get_node_text(n, offset));
                         }
                     }
                     "description" => {
-                        if let Some(sv) = child.child_by_field_name("content") {
-                            description = Some(doc.get_node_text(sv, offset));
-                        } else if let Some(sv) = child.child(0) {
+                        if let Some(sv) = child.child(0) {
                             description = Some(doc.get_node_text(sv, offset));
                         }
                     }
