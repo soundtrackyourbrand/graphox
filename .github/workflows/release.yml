@@ -30,9 +30,8 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
           # Populates the body from merged pull requests since the previous tag.
-          # Set on the asset-upload step too: that updates the same release, and
-          # append_body defaults to overwriting, so the last write has to
-          # generate them as well or the body ends up empty.
+          # Only here: the asset-upload step updates the same release and keeps
+          # its body, while generating there too would append a second copy.
           generate_release_notes: true
           draft: false
           prerelease: false
@@ -395,7 +394,6 @@ jobs:
         with:
           tag_name: ${{ github.ref_name }}
           name: ${{ github.ref_name }}
-          generate_release_notes: true
           files: |
             ./artifacts/binary-*/*
             ./artifacts/swc-wasm/*.wasm
