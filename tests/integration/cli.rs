@@ -1396,6 +1396,33 @@ projects:
 
 #[test]
 #[ntest::timeout(20000)]
+fn test_cli_check_finds_documents_below_dotted_dir_ignored_by_enclosing_repo() {
+    // Mirrors a git worktree in a directory its main checkout ignores, under a `first.last` home.
+    let outer = tempdir().unwrap();
+    let repo = outer.path().join("first.last/repo");
+    std::fs::create_dir_all(repo.join(".git/info")).unwrap();
+    std::fs::write(repo.join(".git/info/exclude"), "worktrees/\n").unwrap();
+    let workspace = repo.join("worktrees/wt");
+    std::fs::create_dir_all(workspace.join("src")).unwrap();
+    std::fs::write(workspace.join("schema.graphql"), "type Query { a: String }").unwrap();
+    std::fs::write(workspace.join("src/ops.graphql"), "query Q { a }").unwrap();
+    std::fs::write(
+        workspace.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "src/**/*.graphql"
+"#,
+    )
+    .unwrap();
+
+    let (success, out) = run_check(&workspace);
+    assert!(success, "expected a clean exit, got:\n{out}");
+    assert!(!out.contains("matched no documents"), "got:\n{out}");
+}
+
+#[test]
+#[ntest::timeout(20000)]
 fn test_cli_check_allow_no_documents_per_project_overrides_global_deny() {
     let dir = empty_project_fixture(
         r#"

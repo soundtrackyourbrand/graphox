@@ -535,13 +535,14 @@ pub fn get_glob_root(pattern: &str) -> PathBuf {
     let path = Path::new(pattern);
     let mut root = PathBuf::new();
     let components: Vec<_> = path.components().collect();
-    for component in components {
+    let last = components.len().saturating_sub(1);
+    for (i, component) in components.into_iter().enumerate() {
         let s = component.as_os_str().to_str().unwrap_or("");
         if s.contains('*') || s.contains('?') || s.contains('[') || s.contains('{') {
             break;
         }
-        // If it looks like a file (has an extension), don't include it in the root
-        if Path::new(s).extension().is_some() {
+        // Only the last component can name a file; directories have dots too (`/home/first.last`).
+        if i == last && Path::new(s).extension().is_some() {
             break;
         }
         root.push(component);
@@ -2310,6 +2311,15 @@ mod tests {
         );
         assert_eq!(get_glob_root("*.graphql"), PathBuf::from(""));
         assert_eq!(get_glob_root("docs/"), PathBuf::from("docs/"));
+        assert_eq!(get_glob_root("src/schema.graphql"), PathBuf::from("src"));
+        assert_eq!(
+            get_glob_root("/home/first.last/repo/src/**/*.graphql"),
+            PathBuf::from("/home/first.last/repo/src")
+        );
+        assert_eq!(
+            get_glob_root("/home/first.last/repo/src"),
+            PathBuf::from("/home/first.last/repo/src")
+        );
     }
 
     #[test]
