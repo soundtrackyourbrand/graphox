@@ -36,6 +36,54 @@ pub fn dedup_definitions(
     });
 }
 
+/// The definition `graphql(source)` returns for each source text. One block
+/// can define several definitions, which all share its source text, while
+/// `graphql()` returns one document for it: the block's first operation by
+/// type name, or, in a block of fragments alone, its first fragment by name.
+pub struct GraphqlOverloads<'a> {
+    /// Keyed and ordered by source text.
+    pub operations: BTreeMap<&'a str, &'a OperationGenerated>,
+    /// In name order, each for a source text no operation has.
+    pub fragments: Vec<&'a FragmentGenerated>,
+}
+
+impl<'a> GraphqlOverloads<'a> {
+    pub fn new(operations: &'a [OperationGenerated], fragments: &'a [FragmentGenerated]) -> Self {
+        let mut by_source: BTreeMap<&'a str, &'a OperationGenerated> = BTreeMap::new();
+        for op in operations {
+            by_source.entry(op.source_text.as_str()).or_insert(op);
+        }
+
+        let mut by_name: BTreeMap<&'a str, &'a FragmentGenerated> = BTreeMap::new();
+        for frag in fragments {
+            by_name.entry(frag.name.as_str()).or_insert(frag);
+        }
+        let mut taken: ahash::AHashSet<&'a str> = by_source.keys().copied().collect();
+        let fragments = by_name
+            .into_values()
+            .filter(|frag| taken.insert(frag.source_text.as_str()))
+            .collect();
+
+        Self {
+            operations: by_source,
+            fragments,
+        }
+    }
+
+    /// The document `graphql(source)` returns, by its export name.
+    pub fn document_for(&self, source: &str) -> Option<&'a str> {
+        self.operations
+            .get(source)
+            .map(|op| op.document_name.as_str())
+            .or_else(|| {
+                self.fragments
+                    .iter()
+                    .find(|frag| frag.source_text == source)
+                    .map(|frag| frag.document_name.as_str())
+            })
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn generate_entrypoint_content(
     output_dir: &Path,
@@ -79,13 +127,11 @@ pub fn generate_entrypoint_content(
     let mut overloads = String::with_capacity(operations.len() * 100);
     let mut map_entries = String::with_capacity(operations.len() * 80);
 
-    // Deduplicate operations by source text to avoid duplicate overloads and map entries
-    let mut unique_ops_by_source = BTreeMap::new();
+    let graphql_overloads = GraphqlOverloads::new(operations, fragments);
     // Deduplicate operations by name to avoid duplicate imports
     let mut unique_ops_by_name = BTreeMap::new();
 
     for op in operations {
-        unique_ops_by_source.entry(&op.source_text).or_insert(op);
         unique_ops_by_name
             .entry(&op.operation_type_name)
             .or_insert(op);
@@ -122,7 +168,7 @@ pub fn generate_entrypoint_content(
         ));
     }
 
-    for op in unique_ops_by_source.values() {
+    for op in graphql_overloads.operations.values() {
         overloads.push_str(&format!(
             "export function graphql(source: {:?}): typeof {};\n",
             op.source_text, op.document_name
@@ -136,9 +182,6 @@ pub fn generate_entrypoint_content(
     for frag in fragments {
         unique_frags_by_name.entry(&frag.name).or_insert(frag);
     }
-
-    // Track source texts already added (from operations) to avoid duplicate keys
-    let mut added_source_texts: Vec<&String> = unique_ops_by_source.keys().cloned().collect();
 
     for frag in unique_frags_by_name.values() {
         let rel_codegen_path = get_relative_path(&frag.codegen_path);
@@ -169,13 +212,7 @@ pub fn generate_entrypoint_content(
         }
     }
 
-    for frag in unique_frags_by_name.values() {
-        // Skip if this source text was already added (from an operation)
-        if added_source_texts.contains(&&frag.source_text) {
-            continue;
-        }
-        added_source_texts.push(&frag.source_text);
-
+    for frag in &graphql_overloads.fragments {
         if generate_ast_for_fragments {
             overloads.push_str(&format!(
                 "export function graphql(source: {:?}): typeof {};\n",

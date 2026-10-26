@@ -392,6 +392,17 @@ pub fn generate_typescript_with_profile(
                 dependencies: op_deps,
                 is_fragment: false,
             });
+            let facts = ctx.config.emit_facts().then(|| {
+                crate::facts::operation_facts(
+                    op,
+                    &block_text,
+                    &doc_name,
+                    &crate::facts::FragmentScope {
+                        project: ctx.all_fragments,
+                        document: &exec_doc.fragments,
+                    },
+                )
+            });
             generated_operations.push(OperationGenerated {
                 name: raw_name.to_string(),
                 operation_type: op.operation_type,
@@ -403,6 +414,7 @@ pub fn generate_typescript_with_profile(
                 codegen_path: ctx.current_file_path.to_path_buf(),
                 generated_bytes: type_bytes + export_bytes,
                 ast_bytes,
+                facts,
             });
         }
 
@@ -581,6 +593,17 @@ pub fn generate_typescript_with_profile(
                 });
             }
 
+            let facts = ctx.config.emit_facts().then(|| {
+                crate::facts::fragment_facts(
+                    frag,
+                    &block_text,
+                    &fragment_document_name,
+                    &crate::facts::FragmentScope {
+                        project: ctx.all_fragments,
+                        document: &exec_doc.fragments,
+                    },
+                )
+            });
             generated_fragments.push(FragmentGenerated {
                 name: raw_name.to_string(),
                 fragment_type_name,
@@ -589,6 +612,7 @@ pub fn generate_typescript_with_profile(
                 codegen_path: ctx.current_file_path.to_path_buf(),
                 generated_bytes: type_bytes + export_bytes,
                 ast_bytes: export_bytes,
+                facts,
             });
         }
     }

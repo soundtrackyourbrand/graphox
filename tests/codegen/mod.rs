@@ -1,6 +1,7 @@
 mod codegen_document;
 mod codegen_watcher;
 mod duplicate_typename;
+mod facts;
 mod fragment_import_test;
 mod graphql_tag_fallback;
 mod list_field_collisions;

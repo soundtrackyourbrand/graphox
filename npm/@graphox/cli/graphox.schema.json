@@ -451,6 +451,11 @@
           "description": "Generate permission metadata for operations.",
           "default": false
         },
+        "emit_facts": {
+          "type": "boolean",
+          "description": "Write graphql-facts.json next to manifest.json: every operation and fragment with its fragments expanded, for tools that check how documents are used. See docs/facts.md.",
+          "default": false
+        },
         "emit_ast_directives": { "type": "boolean", "default": false },
         "emit_ast_aliases": { "type": "boolean", "default": true },
         "emit_ast_arguments": { "type": "boolean", "default": true },

@@ -61,6 +61,10 @@ codegen:
   # Delete generated files whose source document no longer exists
   prune_orphans: true
 
+  # Write graphql-facts.json, every definition with its fragments expanded,
+  # for tools that check how documents are used. See facts.md.
+  emit_facts: false
+
   # File extensions
   emit_extensions: "ts"  # or: "js", "tsx"
 

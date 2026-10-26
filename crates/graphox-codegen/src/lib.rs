@@ -1,5 +1,6 @@
 pub mod context;
 pub mod entrypoint;
+pub mod facts;
 pub mod helpers;
 pub mod manifest;
 pub mod schema_types;

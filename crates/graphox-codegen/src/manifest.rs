@@ -100,6 +100,7 @@ mod tests {
             codegen_path: PathBuf::from(path),
             generated_bytes: 0,
             ast_bytes: 0,
+            facts: None,
         }
     }
 
@@ -112,6 +113,7 @@ mod tests {
             codegen_path: PathBuf::from(path),
             generated_bytes: 0,
             ast_bytes: 0,
+            facts: None,
         }
     }
 
