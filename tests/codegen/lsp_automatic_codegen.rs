@@ -2265,3 +2265,79 @@ async fn test_lsp_automatic_codegen_keeps_every_fragment_of_a_shared_document() 
         "LSP auto-codegen output should match CLI codegen"
     );
 }
+
+/// `graphql-facts.json` is written by the language server's automatic codegen
+/// as well as by the CLI, and the two must agree.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_lsp_automatic_codegen_writes_the_same_facts_as_the_cli() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! name: String friends(first: Int): [User!]! } type Query { me: User }",
+    )
+    .unwrap();
+    fs::create_dir_all(base_dir.join("src")).unwrap();
+    fs::write(
+        base_dir.join("src/fragments.graphql"),
+        "fragment UserName on User { name }\n",
+    )
+    .unwrap();
+    let query_path = base_dir.join("src/me.graphql");
+    let query_text =
+        "query Me($first: Int = 10) { me { ...UserName friends(first: $first) { id } } }\n";
+    fs::write(&query_path, query_text).unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+                .with_output_dir("src/__generated__".to_string())
+                .with_codegen(CodegenConfig::default().with_emit_facts(true)),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50);
+
+    run_cli_codegen(config.clone(), false, false, false, None).await;
+    let facts_path = base_dir.join("src/__generated__/graphql-facts.json");
+    let cli_facts = fs::read_to_string(&facts_path).unwrap();
+    assert!(
+        cli_facts.contains("\"fragment\":\"UserName\""),
+        "{cli_facts}"
+    );
+
+    fs::remove_dir_all(base_dir.join("src/__generated__")).unwrap();
+
+    let mut service = setup_lsp_with_scan_complete(config).await;
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: graphox::utils::path_to_uri(&query_path).unwrap(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: query_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        support::wait_for_file_async(&facts_path, Duration::from_millis(5000), Some("UserName"))
+            .await,
+        "LSP auto-codegen should write graphql-facts.json"
+    );
+    sleep(Duration::from_millis(300)).await;
+    assert_eq!(fs::read_to_string(&facts_path).unwrap(), cli_facts);
+}

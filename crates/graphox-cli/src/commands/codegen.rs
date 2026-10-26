@@ -745,6 +745,18 @@ async fn execute_codegen(
                         );
                         return Err(());
                     }
+
+                    if let Err(e) =
+                        codegen::facts::write_facts(&out_dir_path, &ops, &frags, &codegen_config)
+                    {
+                        eprintln!(
+                            "{}: {} ({})",
+                            "Failed to write facts".red(),
+                            e,
+                            out_dir_path.join(codegen::facts::FACTS_FILE_NAME).display(),
+                        );
+                        return Err(());
+                    }
                     Ok(())
                 },
             )
@@ -1308,6 +1320,7 @@ fn surgical_clean(dir: &Path, verbose: bool, entrypoint_name: &str) -> Result<()
         format!("{}.ts", entrypoint_name),
         "graphql.ts".to_string(),
         codegen::manifest::MANIFEST_FILE_NAME.to_string(),
+        codegen::facts::FACTS_FILE_NAME.to_string(),
         "permissions.ts".to_string(),
         "fragment-masking.ts".to_string(),
         "index.ts".to_string(),

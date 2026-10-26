@@ -885,6 +885,7 @@ pub struct CodegenConfig {
     pub generate_ast_for_fragments: Option<bool>,
     pub re_exports: Option<bool>,
     pub emit_permission_data: Option<bool>,
+    pub emit_facts: Option<bool>,
     pub emit_ast_directives: Option<bool>,
     pub emit_ast_aliases: Option<bool>,
     pub emit_ast_arguments: Option<bool>,
@@ -1012,6 +1013,11 @@ impl CodegenConfig {
         self
     }
 
+    pub fn with_emit_facts(mut self, enabled: bool) -> Self {
+        self.emit_facts = Some(enabled);
+        self
+    }
+
     pub fn with_nullable_fields_as_optional(mut self, enabled: bool) -> Self {
         self.nullable_fields_as_optional = Some(enabled);
         self
@@ -1093,6 +1099,7 @@ impl CodegenConfig {
             generate_ast_for_fragments: node["generate_ast_for_fragments"].as_bool(),
             re_exports: node["re_exports"].as_bool(),
             emit_permission_data: node["emit_permission_data"].as_bool(),
+            emit_facts: node["emit_facts"].as_bool(),
             emit_ast_directives: node["emit_ast_directives"].as_bool(),
             emit_ast_aliases: node["emit_ast_aliases"].as_bool(),
             emit_ast_arguments: node["emit_ast_arguments"].as_bool(),
@@ -1231,6 +1238,13 @@ impl CodegenConfig {
 
     pub fn emit_permission_data(&self) -> bool {
         self.emit_permission_data.unwrap_or(false)
+    }
+
+    /// Whether codegen writes `graphql-facts.json`, a description of every
+    /// definition for tools that check how documents are used. Off by default:
+    /// nothing in graphox reads it.
+    pub fn emit_facts(&self) -> bool {
+        self.emit_facts.unwrap_or(false)
     }
 
     pub fn emit_ast_directives(&self) -> bool {
@@ -2003,6 +2017,9 @@ impl Config {
             if project_codegen.emit_permission_data.is_some() {
                 result.emit_permission_data = project_codegen.emit_permission_data;
             }
+            if project_codegen.emit_facts.is_some() {
+                result.emit_facts = project_codegen.emit_facts;
+            }
             if project_codegen.emit_ast_directives.is_some() {
                 result.emit_ast_directives = project_codegen.emit_ast_directives;
             }
@@ -2223,7 +2240,11 @@ impl Config {
     pub fn is_output_file(&self, path: &Path) -> bool {
         // Check for common generated file extensions
         if let Some(ext) = path.extension().and_then(|s| s.to_str()) {
-            if ext == "json" && path.file_name().is_some_and(|n| n == "manifest.json") {
+            if ext == "json"
+                && path
+                    .file_name()
+                    .is_some_and(|n| n == "manifest.json" || n == "graphql-facts.json")
+            {
                 return true;
             }
             if path.to_string_lossy().ends_with(".codegen.ts") {

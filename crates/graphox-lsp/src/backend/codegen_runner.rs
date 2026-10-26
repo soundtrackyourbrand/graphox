@@ -926,6 +926,23 @@ pub async fn run_codegen(
                 )
                 .await;
         }
+
+        if let Err(e) =
+            graphox_codegen::facts::write_facts(&out_dir_path, &ops, &frags, codegen_config)
+        {
+            client
+                .log_message(
+                    MessageType::ERROR,
+                    format!(
+                        "Failed to write facts file {}: {}",
+                        out_dir_path
+                            .join(graphox_codegen::facts::FACTS_FILE_NAME)
+                            .display(),
+                        e
+                    ),
+                )
+                .await;
+        }
     }
 
     // Deleting a file (or emptying it of GraphQL) leaves its `.codegen.ts` behind —
