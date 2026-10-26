@@ -374,6 +374,16 @@ impl RepeatedSelectionsRule {
     }
 }
 
+/// Whether `name` is a GraphQL name: a letter or underscore, then letters,
+/// digits and underscores.
+fn is_graphql_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
     required_fields: Option<AHashMap<String, FieldRule>>,
@@ -595,7 +605,7 @@ impl RulesConfig {
             };
 
             if let Some((type_name, field_name)) = key.split_once('.') {
-                if type_name.is_empty() || field_name.is_empty() || field_name.contains('.') {
+                if !is_graphql_name(type_name) || !is_graphql_name(field_name) {
                     eprintln!(
                         "{}: {} key '{}' is not a field name, a type name or a Type.field coordinate. Skipping it.",
                         "Warning".yellow(),

@@ -275,6 +275,36 @@ fn test_required_field_coordinate_and_type_namespace_combine() {
 
 #[test]
 #[ntest::timeout(3000)]
+fn test_required_field_coordinate_with_an_invalid_name_is_skipped() {
+    let yaml = r#"
+      required_fields:
+        User. name: true
+        User.na-me: true
+        .name: true
+        User.: true
+        User.a.b: true
+        User.password: true
+    "#;
+    let yaml_docs = yaml_rust2::YamlLoader::load_from_str(yaml).unwrap();
+    let rules = RulesConfig::from_yaml(&yaml_docs[0]).unwrap();
+
+    for (type_name, field_name) in [
+        ("User", " name"),
+        ("User", "na-me"),
+        ("", "name"),
+        ("User", ""),
+        ("User", "a.b"),
+    ] {
+        assert!(
+            rules.get_required_rule(type_name, field_name).is_none(),
+            "{type_name}.{field_name} should not have been read as a rule"
+        );
+    }
+    assert!(rules.get_required_rule("User", "password").is_some());
+}
+
+#[test]
+#[ntest::timeout(3000)]
 fn test_required_field_specific_operation_query() {
     let text = r#"
         query GetPosts {
