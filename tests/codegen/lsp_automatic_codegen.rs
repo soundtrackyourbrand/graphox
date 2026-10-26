@@ -2165,3 +2165,98 @@ async fn setup_lsp_with_scan_complete(config: Config) -> LspService<support::Lsp
 
     service
 }
+
+/// One document can define several fragments, and every fragment it defines
+/// carries the whole document as its source text. Codegen must keep each of
+/// them, in the language server as in the CLI, rather than treating fragments
+/// that share a source text as one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_lsp_automatic_codegen_keeps_every_fragment_of_a_shared_document() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type User { id: ID! name: String } type Query { me: User }",
+    )
+    .unwrap();
+    let fragments_path = base_dir.join("src/fragments.graphql");
+    fs::create_dir_all(fragments_path.parent().unwrap()).unwrap();
+    fs::write(
+        &fragments_path,
+        "fragment UserName on User { name }\nfragment UserId on User { id }\n",
+    )
+    .unwrap();
+    let query_path = base_dir.join("src/me.graphql");
+    let query_text = "query Me { me { ...UserName ...UserId } }\n";
+    fs::write(&query_path, query_text).unwrap();
+
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+                .with_output_dir("src/__generated__".to_string())
+                .with_codegen(
+                    CodegenConfig::default()
+                        .with_generate_ast_for_fragments(true)
+                        .with_re_exports(true),
+                ),
+        ],
+    )
+    .with_lsp_automatic_codegen(true)
+    .with_lsp_codegen_throttle_ms(50);
+
+    run_cli_codegen(config.clone(), false, false, false, None).await;
+
+    let output_dir = base_dir.join("src/__generated__");
+    let cli_snapshot = snapshot_generated_tree(&output_dir);
+    let cli_manifest = &cli_snapshot["manifest.json"];
+    for name in ["UserName", "UserId"] {
+        assert!(
+            cli_manifest.contains(name),
+            "CLI manifest should list {name}. manifest={cli_manifest}"
+        );
+    }
+
+    fs::remove_dir_all(&output_dir).unwrap();
+
+    let mut service = setup_lsp_with_scan_complete(config).await;
+    service
+        .call(
+            Request::build("textDocument/didOpen")
+                .params(
+                    serde_json::to_value(DidOpenTextDocumentParams {
+                        text_document: TextDocumentItem {
+                            uri: graphox::utils::path_to_uri(&query_path).unwrap(),
+                            language_id: "graphql".to_string(),
+                            version: 1,
+                            text: query_text.to_string(),
+                        },
+                    })
+                    .unwrap(),
+                )
+                .finish(),
+        )
+        .await
+        .unwrap();
+
+    assert!(
+        support::wait_for_file_async(
+            &output_dir.join("manifest.json"),
+            Duration::from_millis(5000),
+            Some("UserName"),
+        )
+        .await,
+        "LSP auto-codegen should write the manifest"
+    );
+    sleep(Duration::from_millis(300)).await;
+
+    let lsp_snapshot = snapshot_generated_tree(&output_dir);
+    assert_eq!(
+        lsp_snapshot, cli_snapshot,
+        "LSP auto-codegen output should match CLI codegen"
+    );
+}

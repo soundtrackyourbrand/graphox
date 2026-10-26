@@ -5,6 +5,37 @@ use std::path::Path;
 
 use crate::context::{FragmentGenerated, OperationGenerated};
 
+/// Drops the copies of a definition that reach one output directory more than
+/// once, as when projects that share the directory both include its file, and
+/// puts what is left in a stable order.
+///
+/// A copy is the same name and the same source text. The name is part of it
+/// because every definition in a document carries the whole document as its
+/// source: two fragments written in one file share a source text and are
+/// still two fragments.
+pub fn dedup_definitions(
+    operations: &mut Vec<OperationGenerated>,
+    fragments: &mut Vec<FragmentGenerated>,
+) {
+    operations.sort_by(|a, b| {
+        a.operation_type_name
+            .cmp(&b.operation_type_name)
+            .then_with(|| a.source_text.cmp(&b.source_text))
+    });
+    operations.dedup_by(|a, b| {
+        a.operation_type_name == b.operation_type_name && a.source_text == b.source_text
+    });
+
+    fragments.sort_by(|a, b| {
+        a.fragment_type_name
+            .cmp(&b.fragment_type_name)
+            .then_with(|| a.source_text.cmp(&b.source_text))
+    });
+    fragments.dedup_by(|a, b| {
+        a.fragment_type_name == b.fragment_type_name && a.source_text == b.source_text
+    });
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn generate_entrypoint_content(
     output_dir: &Path,

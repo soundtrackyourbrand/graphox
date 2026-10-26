@@ -676,27 +676,7 @@ async fn execute_codegen(
             .into_par_iter()
             .map(
                 |(out_dir_path, mut ops, mut frags, codegen_config, schema_import)| {
-                    // Deduplicate operations by name and source
-                    ops.sort_by(|a, b| {
-                        a.operation_type_name
-                            .cmp(&b.operation_type_name)
-                            .then_with(|| a.source_text.cmp(&b.source_text))
-                    });
-                    ops.dedup_by(|a, b| {
-                        a.operation_type_name == b.operation_type_name
-                            && a.source_text == b.source_text
-                    });
-
-                    // Deduplicate fragments by name and source
-                    frags.sort_by(|a, b| {
-                        a.fragment_type_name
-                            .cmp(&b.fragment_type_name)
-                            .then_with(|| a.source_text.cmp(&b.source_text))
-                    });
-                    frags.dedup_by(|a, b| {
-                        a.fragment_type_name == b.fragment_type_name
-                            && a.source_text == b.source_text
-                    });
+                    codegen::dedup_definitions(&mut ops, &mut frags);
 
                     // Check if path exists but is a file (blocks directory creation)
                     if out_dir_path.exists() && out_dir_path.is_file() {
