@@ -76,7 +76,9 @@ fn a_default_is_followed_into_a_fragment_in_another_file() {
 
     let (out, code) = check(&dir, &[]);
     assert!(
-        out.contains("src/page.graphql")
+        // The path is printed with the platform's separator.
+        out.contains("page.graphql")
+            && !out.contains("tracks.graphql")
             && out.contains(
                 "'$first' defaults to 2500, which is passed to 'Playlist.tracks(first:)' in \
                  fragment 'Tracks', above its limit of 100: page through it instead"
