@@ -209,8 +209,44 @@
           "type": "array",
           "description": "Report selections that recur across the workspace. Configured as a list so each kind of finding gets its own thresholds and severity.",
           "items": { "$ref": "#/definitions/RepeatedSelectionsRule" }
+        },
+        "field_arguments": {
+          "type": "object",
+          "description": "Limits on what an argument of a field may be, keyed by schema coordinate (Type.field). graphox checks literals and variable defaults; the limits are also written to graphql-facts.json for tools that check the values passed at call sites.",
+          "propertyNames": { "pattern": "^[_A-Za-z][_0-9A-Za-z]*\\.[_A-Za-z][_0-9A-Za-z]*$" },
+          "additionalProperties": { "$ref": "#/definitions/FieldArgumentsEntry" }
         }
       }
+    },
+    "FieldArgumentsEntry": {
+      "type": "object",
+      "description": "A limit per argument, as { max: n } or a list of allowed values, beside an optional reason and severity.",
+      "properties": {
+        "reason": {
+          "description": "Shown in the diagnostic. An argument named `reason` is limited by giving it a map or a list instead of a string.",
+          "oneOf": [{ "type": "string" }, { "$ref": "#/definitions/ArgumentLimit" }]
+        },
+        "severity": {
+          "description": "Reported as an error unless a severity is given.",
+          "oneOf": [{ "enum": ["error", "warning", "info"] }, { "$ref": "#/definitions/ArgumentLimit" }]
+        }
+      },
+      "additionalProperties": { "$ref": "#/definitions/ArgumentLimit" }
+    },
+    "ArgumentLimit": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": { "max": { "type": "integer" } },
+          "required": ["max"],
+          "additionalProperties": false
+        },
+        {
+          "type": "array",
+          "minItems": 1,
+          "items": { "type": ["integer", "string", "boolean"] }
+        }
+      ]
     },
     "RepeatedSelectionsRule": {
       "type": "object",

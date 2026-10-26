@@ -97,13 +97,16 @@ pub enum IgnoreRule {
     RequiredFields,
     /// The `forbidden_fields` rule.
     ForbiddenFields,
+    /// The `field_arguments` rule.
+    FieldArguments,
 }
 
 impl IgnoreRule {
-    pub const ALL: [IgnoreRule; 3] = [
+    pub const ALL: [IgnoreRule; 4] = [
         IgnoreRule::Deprecated,
         IgnoreRule::RequiredFields,
         IgnoreRule::ForbiddenFields,
+        IgnoreRule::FieldArguments,
     ];
 
     /// The name this rule is written as in an ignore comment, matching the key
@@ -113,6 +116,7 @@ impl IgnoreRule {
             IgnoreRule::Deprecated => "deprecated",
             IgnoreRule::RequiredFields => "required_fields",
             IgnoreRule::ForbiddenFields => "forbidden_fields",
+            IgnoreRule::FieldArguments => "field_arguments",
         }
     }
 }
@@ -125,6 +129,7 @@ pub struct IgnoreScope {
     deprecated: bool,
     required_fields: bool,
     forbidden_fields: bool,
+    field_arguments: bool,
 }
 
 impl IgnoreScope {
@@ -132,12 +137,14 @@ impl IgnoreScope {
         deprecated: false,
         required_fields: false,
         forbidden_fields: false,
+        field_arguments: false,
     };
 
     pub const ALL: Self = Self {
         deprecated: true,
         required_fields: true,
         forbidden_fields: true,
+        field_arguments: true,
     };
 
     pub fn only(rule: IgnoreRule) -> Self {
@@ -151,6 +158,7 @@ impl IgnoreScope {
             IgnoreRule::Deprecated => self.deprecated = true,
             IgnoreRule::RequiredFields => self.required_fields = true,
             IgnoreRule::ForbiddenFields => self.forbidden_fields = true,
+            IgnoreRule::FieldArguments => self.field_arguments = true,
         }
     }
 
@@ -159,6 +167,7 @@ impl IgnoreScope {
             IgnoreRule::Deprecated => self.deprecated,
             IgnoreRule::RequiredFields => self.required_fields,
             IgnoreRule::ForbiddenFields => self.forbidden_fields,
+            IgnoreRule::FieldArguments => self.field_arguments,
         }
     }
 
@@ -173,6 +182,7 @@ impl IgnoreScope {
             deprecated: self.deprecated || other.deprecated,
             required_fields: self.required_fields || other.required_fields,
             forbidden_fields: self.forbidden_fields || other.forbidden_fields,
+            field_arguments: self.field_arguments || other.field_arguments,
         }
     }
 }

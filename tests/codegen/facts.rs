@@ -2,9 +2,14 @@
 //! tools read it, so its shape is pinned here in full.
 
 use graphox::{
-    Config, config::CodegenConfig, config::GlobPattern, config::ProjectConfig, config::SchemaSource,
+    Config,
+    config::{
+        ArgumentLimit, CodegenConfig, FieldArgumentsRule, FieldCoordinate, GlobPattern, LimitValue,
+        ProjectConfig, RulesConfig, SchemaSource, Severity,
+    },
 };
 use graphox_cli::run_codegen;
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 use tempfile::tempdir;
@@ -19,16 +24,15 @@ type Track { id: ID! title: String previewUrl: String }
 "#;
 
 fn config(base_dir: &Path, emit_facts: bool) -> Config {
-    Config::new_test(
-        base_dir.to_path_buf(),
-        vec![
-            ProjectConfig::default()
-                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
-                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
-                .with_output_dir("src/__generated__".to_string())
-                .with_codegen(CodegenConfig::default().with_emit_facts(emit_facts)),
-        ],
-    )
+    Config::new_test(base_dir.to_path_buf(), vec![project(emit_facts)])
+}
+
+fn project(emit_facts: bool) -> ProjectConfig {
+    ProjectConfig::default()
+        .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+        .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+        .with_output_dir("src/__generated__".to_string())
+        .with_codegen(CodegenConfig::default().with_emit_facts(emit_facts))
 }
 
 fn workspace(documents: &[(&str, &str)]) -> tempfile::TempDir {
@@ -68,7 +72,7 @@ async fn facts_pin_the_format() {
     run_codegen(config(&base_dir, true), false, false, false, None).await;
 
     let facts = fs::read_to_string(facts_path(&base_dir)).unwrap();
-    let expected = r#"{"version":1,"definitions":[
+    let expected = r#"{"version":1,"limits":[],"definitions":[
 {"document":"AddMutationDocument","kind":"mutation","name":"Add","returned":true,"selections":[{"arguments":[{"name":"id","value":{"kind":"variable","name":"id"}},{"name":"uris","value":{"kind":"list","values":[{"kind":"string","value":"a"},{"kind":"string","value":"b"}]}}],"kind":"field","name":"addTracks","parent":"Mutation","selections":[{"kind":"field","name":"id","parent":"Playlist","type":"ID!"}],"type":"Playlist"}],"source":"mutation Add($id: ID!) { addTracks(id: $id, uris: [\"a\", \"b\"]) { id } }\n","type":"Mutation","variables":[{"name":"id","type":"ID!"}]},
 {"document":"PageQueryDocument","kind":"query","name":"Page","returned":true,"selections":[{"arguments":[{"name":"id","value":{"kind":"variable","name":"id"}}],"kind":"field","name":"playlist","parent":"Query","selections":[{"alias":"t","arguments":[{"name":"first","value":{"kind":"variable","name":"first"}},{"name":"market","value":{"kind":"string","value":"SE"}}],"kind":"field","name":"tracks","parent":"Playlist","selections":[{"kind":"field","name":"edges","parent":"TrackConnection","selections":[{"kind":"field","name":"cursor","parent":"TrackEdge","type":"String!"},{"kind":"field","name":"node","parent":"TrackEdge","selections":[{"fragment":"Row","kind":"spread","on":"Track","selections":[{"kind":"field","name":"id","parent":"Track","type":"ID!"},{"directives":[{"arguments":[{"name":"if","value":{"kind":"boolean","value":true}}],"name":"include"}],"kind":"inline","on":"Track","selections":[{"kind":"field","name":"title","parent":"Track","type":"String"}]}]}],"type":"Track!"}],"type":"[TrackEdge!]!"}],"type":"TrackConnection!"}],"type":"Playlist"}],"source":"query Page($id: ID!, $first: Int = 100) { playlist(id: $id) { t: tracks(first: $first, market: \"SE\") { edges { cursor node { ...Row } } } } }\n","type":"Query","variables":[{"name":"id","type":"ID!"},{"default":{"kind":"int","value":"100"},"name":"first","type":"Int"}]},
 {"document":"RowDocument","kind":"fragment","name":"Row","returned":true,"selections":[{"kind":"field","name":"id","parent":"Track","type":"ID!"},{"directives":[{"arguments":[{"name":"if","value":{"kind":"boolean","value":true}}],"name":"include"}],"kind":"inline","on":"Track","selections":[{"kind":"field","name":"title","parent":"Track","type":"String"}]}],"source":"fragment Row on Track { id ... on Track @include(if: true) { title } }\n","type":"Track"}
@@ -202,5 +206,40 @@ async fn facts_keep_every_definition_of_a_shared_document() {
         facts.matches(shared).count(),
         2,
         "both fragments of two.graphql should be listed with its source. facts={facts}"
+    );
+}
+
+#[tokio::test]
+#[ntest::timeout(30000)]
+async fn facts_list_the_projects_field_argument_limits() {
+    let dir = workspace(&[("q.graphql", "query Q { playlist(id: \"1\") { id } }\n")]);
+    let base_dir = dir.path().canonicalize().unwrap();
+    let limits = BTreeMap::from([
+        (
+            FieldCoordinate::new("Playlist", "tracks"),
+            FieldArgumentsRule::new(vec![("first".to_string(), ArgumentLimit::Max(100))])
+                .with_reason("page through it instead"),
+        ),
+        (
+            FieldCoordinate::new("Album", "tracks"),
+            FieldArgumentsRule::new(vec![(
+                "first".to_string(),
+                ArgumentLimit::Values(vec![LimitValue::Int(100), LimitValue::Int(500)]),
+            )])
+            .with_severity(Severity::Warning),
+        ),
+    ]);
+    let config = Config::new_test(
+        base_dir.to_path_buf(),
+        vec![project(true).with_rules(RulesConfig::default().with_field_arguments(limits))],
+    );
+
+    run_codegen(config, false, false, false, None).await;
+
+    let facts = fs::read_to_string(facts_path(&base_dir)).unwrap();
+    let first_line = facts.lines().next().unwrap();
+    assert_eq!(
+        first_line,
+        r#"{"version":1,"limits":[{"argument":"first","field":"Album.tracks","severity":"warning","values":[100,500]},{"argument":"first","field":"Playlist.tracks","max":100,"reason":"page through it instead","severity":"error"}],"definitions":["#
     );
 }

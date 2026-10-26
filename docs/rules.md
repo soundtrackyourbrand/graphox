@@ -12,6 +12,7 @@ graphox includes configurable validation rules that you can enable in `graphox.y
 | `required_fields` | `map` | `{}` | `error` | Ensures operations include required fields |
 | `forbidden_fields` | `map` | `{}` | `error` | Ensures operations exclude forbidden fields |
 | `repeated_selections` | `list` | `[]` | varies | Reports selections that recur across the workspace |
+| `field_arguments` | `map` | `{}` | `error` | Limits what an argument of a field may be |
 
 ## Enabling Rules
 
@@ -371,6 +372,62 @@ A path a fragment nests and the same path selected inline are one selection set,
 Rules that hold for every operation type (`password: true`) are reported inside the fragment definition instead, where the selection is, rather than once per spread.
 
 **Provides code action:** "Remove forbidden field" to automatically delete the field.
+
+---
+
+## field_arguments
+
+Limits what an argument of a field may be: no more than a maximum, or one of a set of values. Each entry is keyed by the field's schema coordinate, `Type.field`, and limits one or more of its arguments.
+
+**Enable:**
+```yaml
+projects:
+  - include: src
+    rules:
+      field_arguments:
+        Playlist.tracks:
+          first: { max: 100 }
+          reason: A whole tracklist is too much to render at once
+        Album.tracks:
+          first: [100, 500]   # only these values
+          severity: warning
+```
+
+`reason` and `severity` work as they do on the other field rules. They sit beside the arguments and are told apart from an argument of the same name by their value: a limit is always `{ max: n }` or a list, never a string. A maximum compares numbers only; a list compares integers, strings, enum values and booleans as written.
+
+A project's `field_arguments` replace the top-level ones rather than adding to them.
+
+**What graphox checks** is the value a document writes itself:
+
+- **A literal argument**, reported where it is written:
+
+  ```graphql
+  query Page {
+    playlist(id: "1") {
+      tracks(first: 3000) { ... }   # Error: 'Playlist.tracks(first:)' is 3000 here, above its limit of 100
+    }
+  }
+  ```
+
+- **A variable's default**, wherever the operation passes that variable to a limited argument, including inside fragments it spreads. A fragment cannot know the defaults of the operations that spread it, so the finding is reported on the operation's default and names the fragment:
+
+  ```graphql
+  query Page($first: Int = 2500) {   # Error: '$first' defaults to 2500, which is passed to
+    playlist(id: "1") { ...Tracks }  # 'Playlist.tracks(first:)' in fragment 'Tracks', above its limit of 100
+  }
+
+  fragment Tracks on Playlist {
+    tracks(first: $first) { ... }
+  }
+  ```
+
+A variable without a default gets its value from the code that sends the operation, which graphox does not see. The limits are written to [`graphql-facts.json`](./facts.md) so a tool that does see that code can check those values.
+
+A rule matches the type the field is selected on, so `Playlist.tracks` does not apply when `tracks` is selected through an interface.
+
+The rule runs in `graphox check`, per project, over the fragments the project resolves; it is not reported in the editor.
+
+**Inline ignore comments:** `# graphox-ignore field_arguments` on the line of the reported value silences it.
 
 ---
 
