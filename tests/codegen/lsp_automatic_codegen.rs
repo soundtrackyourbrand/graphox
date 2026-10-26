@@ -2213,10 +2213,15 @@ async fn test_lsp_automatic_codegen_keeps_every_fragment_of_a_shared_document() 
 
     let output_dir = base_dir.join("src/__generated__");
     let cli_snapshot = snapshot_generated_tree(&output_dir);
+    // Every entry's `source` is the whole document and names both fragments,
+    // so only the entries' names say which fragments are listed.
     let cli_manifest = &cli_snapshot["manifest.json"];
-    for name in ["UserName", "UserId"] {
+    let cli_manifest_entries: Vec<serde_json::Value> = serde_json::from_str(cli_manifest).unwrap();
+    for name in ["UserNameDocument", "UserIdDocument"] {
         assert!(
-            cli_manifest.contains(name),
+            cli_manifest_entries
+                .iter()
+                .any(|entry| entry["name"].as_str() == Some(name)),
             "CLI manifest should list {name}. manifest={cli_manifest}"
         );
     }
