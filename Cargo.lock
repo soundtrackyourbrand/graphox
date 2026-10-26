@@ -964,7 +964,6 @@ dependencies = [
  "ntest",
  "pathdiff",
  "rayon",
- "sonic-rs",
  "tempfile",
  "tokio",
  "tower-lsp-server",
