@@ -275,11 +275,12 @@ describe('SWC Plugin WASM Wrapper', () => {
       fs.mkdirSync(outputDir, { recursive: true });
       const testDir = path.dirname(fileURLToPath(import.meta.url));
       const dummyWasmPath = path.join(testDir, '..', 'wasm', 'graphox_swc_plugin.wasm');
-      fs.writeFileSync(dummyWasmPath, '');
+      const createdDummy = !fs.existsSync(dummyWasmPath);
+      if (createdDummy) fs.writeFileSync(dummyWasmPath, '');
       try {
         return run(outputDir);
       } finally {
-        fs.unlinkSync(dummyWasmPath);
+        if (createdDummy) fs.unlinkSync(dummyWasmPath);
         fs.rmSync(tempDir, { recursive: true });
       }
     }

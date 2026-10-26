@@ -83,10 +83,13 @@ export default defineConfig({
 ```javascript
 // next.config.mjs
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createSWCPlugin } from '@graphox/swc-plugin';
 
-// Turbopack passes the plugin each module's path relative to this directory
-const root = path.join(import.meta.dirname, '..', '..');
+const appDir = path.dirname(fileURLToPath(import.meta.url));
+// Turbopack passes the plugin each module's path relative to this directory:
+// here the root of a workspace two levels above the app
+const root = path.join(appDir, '..', '..');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
@@ -94,7 +97,7 @@ const nextConfig = {
   experimental: {
     swcPlugins: [
       createSWCPlugin({
-        outputs: [{ outputDir: path.join(import.meta.dirname, '__generated__') }],
+        outputs: [{ outputDir: path.join(appDir, '__generated__') }],
         root,
       }),
     ],
