@@ -1,6 +1,7 @@
 pub mod context;
 pub mod entrypoint;
 pub mod helpers;
+pub mod manifest;
 pub mod schema_types;
 pub mod selection_set;
 pub mod typescript;

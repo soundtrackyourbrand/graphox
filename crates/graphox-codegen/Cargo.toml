@@ -16,7 +16,9 @@ dashmap = { workspace = true }
 colored = { workspace = true }
 log = { workspace = true }
 pathdiff = { workspace = true }
+sonic-rs = { workspace = true }
 
 [dev-dependencies]
 ntest = "0.10"
+tempfile = "3.24.0"
 ls-types = { workspace = true }

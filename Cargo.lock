@@ -964,7 +964,6 @@ dependencies = [
  "ntest",
  "pathdiff",
  "rayon",
- "sonic-rs",
  "tempfile",
  "tokio",
  "tower-lsp-server",
@@ -983,6 +982,8 @@ dependencies = [
  "ls-types",
  "ntest",
  "pathdiff",
+ "sonic-rs",
+ "tempfile",
 ]
 
 [[package]]

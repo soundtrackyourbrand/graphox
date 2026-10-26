@@ -18,7 +18,6 @@ notify-debouncer-mini = { workspace = true }
 ahash = { workspace = true }
 apollo-compiler = { workspace = true }
 pathdiff = { workspace = true }
-sonic-rs = { workspace = true }
 tower-lsp-server = { workspace = true }
 
 [dev-dependencies]
