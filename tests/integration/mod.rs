@@ -9,6 +9,7 @@ mod duplicate_fragments_codegen;
 mod duplicate_operations;
 mod emit_extensions_test;
 mod expand_cli;
+mod field_arguments_cli;
 mod fixtures;
 mod generated_import_paths;
 mod github_reporter;

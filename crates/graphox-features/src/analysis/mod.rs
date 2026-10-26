@@ -6,6 +6,7 @@
 
 use std::path::{Path, PathBuf};
 
+pub mod field_arguments;
 pub mod operations;
 pub mod repeated_selections;
 pub mod spreads;

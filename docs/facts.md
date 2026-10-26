@@ -38,15 +38,37 @@ otherwise `graphql()` gives a block of fragments its type alone.
 
 The file is one JSON object. `version` is the version of the format, which
 changes whenever a reader of the previous version could misread the file.
-`definitions` lists the operations, then the fragments, one definition per
-line. Keys within an object are sorted.
+`limits` lists the [`field_arguments`](./rules.md#field_arguments) limits of
+the directory's project. `definitions` lists the operations, then the
+fragments, one definition per line. Keys within an object are sorted.
 
 ```json
-{"version":1,"definitions":[
+{"version":1,"limits":[…],"definitions":[
 {"document":"PageQueryDocument","kind":"query","name":"Page","returned":true,"selections":[…],"source":"…","type":"Query","variables":[…]},
 {"document":"RowDocument","kind":"fragment","name":"Row","returned":true,"selections":[…],"source":"…","type":"Track"}
 ]}
 ```
+
+### Limits
+
+One entry per limited argument, ordered by field:
+
+| Key | Meaning |
+|-----|---------|
+| `field` | The field's schema coordinate, such as `Playlist.tracks` |
+| `argument` | The argument's name |
+| `max` | The largest number it may be, for a maximum |
+| `values` | The values it may be, for a list of allowed values |
+| `severity` | `error`, `warning` or `info` |
+| `reason` | The reason given, if any |
+
+A field matches a limit when its `parent` and `name` match `field`. graphox
+checks literals and variable defaults itself; a reader checks the values a
+caller passes for the variables.
+
+The limits are those of the first project writing to the directory, so
+projects sharing a directory should declare the same ones; `graphox codegen`
+warns when they differ.
 
 ### Definitions
 

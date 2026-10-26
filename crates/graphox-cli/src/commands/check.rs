@@ -5,7 +5,7 @@ use graphox_core::config::{SchemaSource, Severity};
 use graphox_core::engine::Engine;
 use graphox_core::schema;
 use graphox_core::{Config, DocumentState};
-use graphox_features::analysis::repeated_selections;
+use graphox_features::analysis::{field_arguments, repeated_selections};
 use graphox_features::completion::FragmentCompletionInfo;
 use graphox_features::diagnostics::DocumentDiagnostics;
 use rayon::prelude::*;
@@ -194,6 +194,18 @@ pub async fn run_check(
         }
     }
 
+    if !run_field_arguments(
+        &config,
+        &workspace_metadata,
+        &validated_schemas,
+        scope.as_ref(),
+        fail_on,
+        &below_threshold,
+        reporter.as_ref(),
+    ) {
+        success = false;
+    }
+
     if !run_repeated_selections(
         &config,
         &workspace_metadata,
@@ -375,6 +387,152 @@ async fn execute_project_check(
     });
 
     !found_any.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The `field_arguments` rule. A variable's default is judged per operation
+/// with its fragments expanded, and a fragment can live in any file of the
+/// project, so this runs per project over the fragments codegen resolves
+/// rather than per document. Projects that declare no limits are skipped.
+fn run_field_arguments(
+    config: &Config,
+    workspace: &graphox_core::engine::WorkspaceMetadata,
+    validated_schemas: &HashMap<String, Result<ValidSchema, String>>,
+    scope: Option<&super::PathScope>,
+    fail_on: Severity,
+    below_threshold: &std::sync::atomic::AtomicUsize,
+    reporter: &dyn Reporter,
+) -> bool {
+    let rules_by_project: Vec<graphox_core::config::RulesConfig> = config
+        .projects()
+        .iter()
+        .map(|project| config.rules_for_project(project))
+        .collect();
+    let in_scope: Vec<bool> = rules_by_project
+        .iter()
+        .map(|rules| !rules.field_arguments().is_empty())
+        .collect();
+    if !in_scope.contains(&true) {
+        return true;
+    }
+
+    let mut success = true;
+    for resolved in super::resolve_projects(config, workspace, validated_schemas, &in_scope) {
+        let Some(Ok(schema)) = validated_schemas.get(&resolved.schema_key) else {
+            continue;
+        };
+        let rules = rules_by_project[resolved.project_idx].field_arguments();
+        warn_about_unknown_limits(
+            rules,
+            schema,
+            &config.projects()[resolved.project_idx].include().as_key(),
+        );
+
+        for path in &resolved.files {
+            if scope.is_some_and(|scope| !scope.contains(config, path)) {
+                continue;
+            }
+            let Some(doc) = workspace.documents.get(path) else {
+                continue;
+            };
+            for block in doc.get_graphql_trees() {
+                let offset = block.offset;
+                let root = block.tree.root_node();
+                let text = doc.get_node_text(root, offset);
+                // The parsed text starts where the tree's root does, which in
+                // a template literal can be after leading whitespace.
+                let text_start = offset + root.start_byte();
+                let masked = graphox_core::utils::mask_interpolations(&text);
+                let Ok((parsed, _)) = doc.get_executable_doc(schema, offset, &masked) else {
+                    continue;
+                };
+
+                for finding in
+                    field_arguments::check_block(&parsed, &resolved.context.all_fragments, rules)
+                {
+                    let start = text_start + finding.range.start;
+                    let end = text_start + finding.range.end;
+                    if ignored_on_line(doc, end) {
+                        continue;
+                    }
+                    let diagnostic = Diagnostic {
+                        range: Range {
+                            start: doc.byte_to_position(start),
+                            end: doc.byte_to_position(end),
+                        },
+                        severity: Some(finding.severity.as_lsp()),
+                        message: finding.message,
+                        code: Some(NumberOrString::String(
+                            field_arguments::DIAGNOSTIC_CODE.to_string(),
+                        )),
+                        source: graphox_core::utils::DIAGNOSTIC_SOURCE.map(String::from),
+                        ..Default::default()
+                    };
+
+                    if fail_on.is_met_by(diagnostic.severity) {
+                        success = false;
+                    } else {
+                        below_threshold.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    reporter.report_diagnostic(&config.relativize(path), &diagnostic, false);
+                }
+            }
+        }
+    }
+
+    success
+}
+
+/// A limit on a field or argument the schema does not have can never match,
+/// so it would look configured while checking nothing.
+fn warn_about_unknown_limits(
+    rules: &std::collections::BTreeMap<
+        graphox_core::config::FieldCoordinate,
+        graphox_core::config::FieldArgumentsRule,
+    >,
+    schema: &ValidSchema,
+    project: &str,
+) {
+    for (coordinate, rule) in rules {
+        let field = schema
+            .type_field(&coordinate.type_name, &coordinate.field_name)
+            .ok();
+        let unknown: Vec<&str> = match field {
+            None => vec![],
+            Some(field) => rule
+                .arguments
+                .iter()
+                .map(|(name, _)| name.as_str())
+                .filter(|name| field.argument_by_name(name).is_none())
+                .collect(),
+        };
+        if field.is_none() {
+            eprintln!(
+                "{}: field_arguments in project '{}' limits '{}', which the schema does not have.",
+                "Warning".yellow(),
+                project,
+                coordinate.to_string().yellow()
+            );
+        }
+        for name in unknown {
+            eprintln!(
+                "{}: field_arguments in project '{}' limits '{}({}:)', an argument the schema does not have.",
+                "Warning".yellow(),
+                project,
+                coordinate.to_string().yellow(),
+                name.yellow()
+            );
+        }
+    }
+}
+
+/// Whether the rest of the line from `byte` carries a `# graphox-ignore` that
+/// covers `field_arguments`.
+fn ignored_on_line(doc: &DocumentState, byte: usize) -> bool {
+    let line = doc.rope.byte_to_line(byte.min(doc.rope.len_bytes()));
+    let line_end = doc.rope.line_to_byte((line + 1).min(doc.rope.len_lines()));
+    let rest = doc.rope.byte_slice(byte..line_end).to_string();
+    graphox_core::document::parse_ignore_scope(&rest)
+        .covers(graphox_core::document::IgnoreRule::FieldArguments)
 }
 
 /// The `repeated_selections` rule, which compares selections across the whole

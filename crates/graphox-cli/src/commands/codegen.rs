@@ -609,10 +609,19 @@ async fn execute_codegen(
         let mut dir_to_ops: BTreeMap<PathBuf, Vec<codegen::OperationGenerated>> = BTreeMap::new();
         let mut dir_to_frags: BTreeMap<PathBuf, Vec<codegen::FragmentGenerated>> = BTreeMap::new();
         let mut dir_to_config: BTreeMap<PathBuf, CodegenConfig> = BTreeMap::new();
+        let mut dir_to_limits: BTreeMap<PathBuf, codegen::facts::Limits> = BTreeMap::new();
         let mut dir_to_schema_import: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
 
-        let mut project_indices: HashSet<usize> = project_operations.keys().cloned().collect();
-        project_indices.extend(project_fragments.keys().cloned());
+        // In config order, so the project whose settings a shared output
+        // directory takes is the same on every run.
+        let mut project_indices: Vec<usize> = project_operations
+            .keys()
+            .chain(project_fragments.keys())
+            .copied()
+            .collect::<HashSet<usize>>()
+            .into_iter()
+            .collect();
+        project_indices.sort_unstable();
 
         for project_idx in project_indices {
             let Some(project) = cfg.projects().get(project_idx) else {
@@ -650,6 +659,31 @@ async fn execute_codegen(
                 e.insert(cfg.get_codegen_config(Some(project)));
             }
 
+            // The facts carry one set of limits per directory, the first
+            // project's, so a project that differs would be misdescribed.
+            let limits = cfg.rules_for_project(project).field_arguments().clone();
+            match dir_to_limits.entry(canon_out_dir_path.clone()) {
+                std::collections::btree_map::Entry::Vacant(e) => {
+                    e.insert(limits);
+                }
+                std::collections::btree_map::Entry::Occupied(e) => {
+                    // Whether facts are written is the directory's setting,
+                    // taken from its first project like the limits.
+                    let dir_emits_facts = dir_to_config
+                        .get(&canon_out_dir_path)
+                        .is_some_and(|config| config.emit_facts());
+                    if *e.get() != limits && dir_emits_facts {
+                        eprintln!(
+                            "{}: projects sharing output_dir '{}' declare different \
+                             field_arguments, and graphql-facts.json holds one set. \
+                             Using those of the first project.",
+                            "Warning".yellow(),
+                            out_dir
+                        );
+                    }
+                }
+            }
+
             if let std::collections::btree_map::Entry::Vacant(e) =
                 dir_to_schema_import.entry(canon_out_dir_path.clone())
             {
@@ -668,14 +702,15 @@ async fn execute_codegen(
                 let frags = dir_to_frags.remove(&path).unwrap_or_default();
                 let config = dir_to_config.get(&path).unwrap().clone();
                 let schema_import = dir_to_schema_import.get(&path).and_then(|o| o.clone());
-                (path, ops, frags, config, schema_import)
+                let limits = dir_to_limits.remove(&path).unwrap_or_default();
+                (path, ops, frags, config, schema_import, limits)
             })
             .collect();
 
         let dir_results: Vec<_> = dir_data
             .into_par_iter()
             .map(
-                |(out_dir_path, mut ops, mut frags, codegen_config, schema_import)| {
+                |(out_dir_path, mut ops, mut frags, codegen_config, schema_import, limits)| {
                     codegen::dedup_definitions(&mut ops, &mut frags);
 
                     // Check if path exists but is a file (blocks directory creation)
@@ -746,9 +781,13 @@ async fn execute_codegen(
                         return Err(());
                     }
 
-                    if let Err(e) =
-                        codegen::facts::write_facts(&out_dir_path, &ops, &frags, &codegen_config)
-                    {
+                    if let Err(e) = codegen::facts::write_facts(
+                        &out_dir_path,
+                        &ops,
+                        &frags,
+                        &codegen_config,
+                        &limits,
+                    ) {
                         eprintln!(
                             "{}: {} ({})",
                             "Failed to write facts".red(),

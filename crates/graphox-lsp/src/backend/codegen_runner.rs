@@ -789,6 +789,8 @@ pub async fn run_codegen(
     > = std::collections::BTreeMap::new();
     let mut dir_to_config: ahash::AHashMap<PathBuf, graphox_core::config::CodegenConfig> =
         ahash::AHashMap::new();
+    let mut dir_to_limits: ahash::AHashMap<PathBuf, graphox_codegen::facts::Limits> =
+        ahash::AHashMap::new();
 
     for (project, project_ops, project_frags) in successful_projects {
         let out_dir = project.output_dir().unwrap_or("__generated__");
@@ -813,6 +815,9 @@ pub async fn run_codegen(
             let codegen_config = config.get_codegen_config(Some(project));
             e.insert(codegen_config);
         }
+        dir_to_limits
+            .entry(canon_out_dir_path.clone())
+            .or_insert_with(|| config.rules_for_project(project).field_arguments().clone());
     }
 
     for (out_dir_path, mut ops, mut frags) in dir_to_ops.into_iter().map(|(k, v)| {
@@ -927,9 +932,13 @@ pub async fn run_codegen(
                 .await;
         }
 
-        if let Err(e) =
-            graphox_codegen::facts::write_facts(&out_dir_path, &ops, &frags, codegen_config)
-        {
+        if let Err(e) = graphox_codegen::facts::write_facts(
+            &out_dir_path,
+            &ops,
+            &frags,
+            codegen_config,
+            &dir_to_limits.remove(&out_dir_path).unwrap_or_default(),
+        ) {
             client
                 .log_message(
                     MessageType::ERROR,

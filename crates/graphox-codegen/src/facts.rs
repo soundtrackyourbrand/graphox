@@ -9,8 +9,11 @@ use apollo_compiler::ast::{OperationType, Value};
 use apollo_compiler::executable::{
     self, DirectiveList, Fragment, Operation, Selection, SelectionSet,
 };
-use graphox_core::config::CodegenConfig;
+use graphox_core::config::{
+    ArgumentLimit, CodegenConfig, FieldArgumentsRule, FieldCoordinate, LimitValue, Severity,
+};
 use sonic_rs::{JsonValueMutTrait, Value as Json, json};
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -231,14 +234,55 @@ fn value(written: &Value) -> Json {
     }
 }
 
-/// The whole file: the version, then one definition per line, operations
-/// first. Definitions codegen produced without facts are left out.
+/// The `field_arguments` limits the directory's project declares, one entry
+/// per field and argument, ordered by field.
+pub type Limits = BTreeMap<FieldCoordinate, FieldArgumentsRule>;
+
+fn limits(limits: &Limits) -> Vec<Json> {
+    let mut entries = Vec::new();
+    for (coordinate, rule) in limits {
+        for (argument, limit) in &rule.arguments {
+            let mut entry = json!({
+                "field": coordinate.to_string(),
+                "argument": argument.as_str(),
+                "severity": match rule.severity() {
+                    Severity::Error => "error",
+                    Severity::Warning => "warning",
+                    Severity::Info => "info",
+                },
+            });
+            match limit {
+                ArgumentLimit::Max(max) => put(&mut entry, "max", *max),
+                ArgumentLimit::Values(values) => {
+                    let values: Vec<Json> = values
+                        .iter()
+                        .map(|value| match value {
+                            LimitValue::Int(i) => Json::from(*i),
+                            LimitValue::String(s) => Json::from(s.as_str()),
+                            LimitValue::Boolean(b) => Json::from(*b),
+                        })
+                        .collect();
+                    put(&mut entry, "values", values);
+                }
+            }
+            if let Some(reason) = &rule.reason {
+                put(&mut entry, "reason", reason.as_str());
+            }
+            entries.push(entry);
+        }
+    }
+    entries
+}
+
+/// The whole file: the version, the limits, then one definition per line,
+/// operations first. Definitions codegen produced without facts are left out.
 ///
 /// Each definition is marked `returned` when `graphql()` returns its document
 /// for its source text, which only one of the definitions in a block is.
 pub fn generate_facts_content(
     operations: &[OperationGenerated],
     fragments: &[FragmentGenerated],
+    field_limits: &Limits,
 ) -> String {
     let overloads = GraphqlOverloads::new(operations, fragments);
     let definitions = operations
@@ -248,7 +292,10 @@ pub fn generate_facts_content(
             Some((frag.facts.as_ref()?, &frag.source_text, &frag.document_name))
         }));
 
-    let mut content = format!("{{\"version\":{FACTS_VERSION},\"definitions\":[");
+    let mut content = format!(
+        "{{\"version\":{FACTS_VERSION},\"limits\":{},\"definitions\":[",
+        sonic_rs::to_string(&limits(field_limits)).expect("facts serialize")
+    );
     let mut first = true;
     for (facts, source, document_name) in definitions {
         let mut entry = facts.clone();
@@ -274,6 +321,7 @@ pub fn write_facts(
     operations: &[OperationGenerated],
     fragments: &[FragmentGenerated],
     codegen_config: &CodegenConfig,
+    field_limits: &Limits,
 ) -> std::io::Result<()> {
     let path = output_dir.join(FACTS_FILE_NAME);
     if !codegen_config.emit_facts() {
@@ -282,7 +330,7 @@ pub fn write_facts(
             _ => Ok(()),
         };
     }
-    let content = generate_facts_content(operations, fragments);
+    let content = generate_facts_content(operations, fragments, field_limits);
     if std::fs::read_to_string(&path).is_ok_and(|existing| existing == content) {
         return Ok(());
     }

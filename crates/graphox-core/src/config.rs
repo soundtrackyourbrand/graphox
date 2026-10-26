@@ -394,6 +394,7 @@ pub struct RulesConfig {
     no_duplicate_fields: Option<RuleSetting>,
     no_unused_fragments: Option<RuleSetting>,
     repeated_selections: Option<Vec<RepeatedSelectionsRule>>,
+    field_arguments: Option<std::collections::BTreeMap<FieldCoordinate, FieldArgumentsRule>>,
 }
 
 pub type RequiredFieldRule = FieldRule;
@@ -437,6 +438,23 @@ impl RulesConfig {
 
     pub fn repeated_selections(&self) -> &[RepeatedSelectionsRule] {
         self.repeated_selections.as_deref().unwrap_or(&[])
+    }
+
+    pub fn with_field_arguments(
+        mut self,
+        rules: std::collections::BTreeMap<FieldCoordinate, FieldArgumentsRule>,
+    ) -> Self {
+        self.field_arguments = Some(rules);
+        self
+    }
+
+    /// The `field_arguments` limits, ordered by field.
+    pub fn field_arguments(
+        &self,
+    ) -> &std::collections::BTreeMap<FieldCoordinate, FieldArgumentsRule> {
+        static EMPTY: std::collections::BTreeMap<FieldCoordinate, FieldArgumentsRule> =
+            std::collections::BTreeMap::new();
+        self.field_arguments.as_ref().unwrap_or(&EMPTY)
     }
 
     pub fn with_required_fields(mut self, fields: AHashMap<String, FieldRule>) -> Self {
@@ -555,6 +573,9 @@ impl RulesConfig {
         }
         if other.repeated_selections.is_some() {
             merged.repeated_selections = other.repeated_selections.clone();
+        }
+        if other.field_arguments.is_some() {
+            merged.field_arguments = other.field_arguments.clone();
         }
 
         merged
@@ -701,7 +722,209 @@ impl RulesConfig {
             );
         }
 
+        if let Some(hash) = node["field_arguments"].as_hash() {
+            rules.field_arguments = Some(FieldArgumentsRule::map_from_yaml(hash));
+        }
+
         Some(rules)
+    }
+}
+
+/// A field named by its schema coordinate, `Type.field`.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct FieldCoordinate {
+    pub type_name: String,
+    pub field_name: String,
+}
+
+impl FieldCoordinate {
+    pub fn new(type_name: impl Into<String>, field_name: impl Into<String>) -> Self {
+        Self {
+            type_name: type_name.into(),
+            field_name: field_name.into(),
+        }
+    }
+
+    /// Reads `Type.field`, whose two parts must be GraphQL names.
+    pub fn parse(coordinate: &str) -> Option<Self> {
+        let (type_name, field_name) = coordinate.split_once('.')?;
+        (is_graphql_name(type_name) && is_graphql_name(field_name))
+            .then(|| Self::new(type_name, field_name))
+    }
+}
+
+impl std::fmt::Display for FieldCoordinate {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}.{}", self.type_name, self.field_name)
+    }
+}
+
+/// A value an argument may be limited to.
+#[derive(Debug, Clone, PartialEq)]
+pub enum LimitValue {
+    Int(i64),
+    /// A string, or an enum value, which is written the same way in YAML.
+    String(String),
+    Boolean(bool),
+}
+
+impl LimitValue {
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        match node {
+            Yaml::Integer(i) => Some(Self::Int(*i)),
+            Yaml::String(s) => Some(Self::String(s.clone())),
+            Yaml::Boolean(b) => Some(Self::Boolean(*b)),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for LimitValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Int(i) => write!(f, "{i}"),
+            Self::String(s) => write!(f, "{s}"),
+            Self::Boolean(b) => write!(f, "{b}"),
+        }
+    }
+}
+
+/// What one argument of a field may be.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ArgumentLimit {
+    /// No number above this.
+    Max(i64),
+    /// Only these values.
+    Values(Vec<LimitValue>),
+}
+
+/// The `field_arguments` entry for one field: a limit per argument, and the
+/// reason and severity its diagnostics carry.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FieldArgumentsRule {
+    /// In the order they were written.
+    pub arguments: Vec<(String, ArgumentLimit)>,
+    pub reason: Option<String>,
+    severity: Option<Severity>,
+}
+
+impl FieldArgumentsRule {
+    pub fn new(arguments: Vec<(String, ArgumentLimit)>) -> Self {
+        Self {
+            arguments,
+            reason: None,
+            severity: None,
+        }
+    }
+
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+
+    pub fn with_severity(mut self, severity: Severity) -> Self {
+        self.severity = Some(severity);
+        self
+    }
+
+    /// Like the other field rules, an error unless the entry names a severity.
+    pub fn severity(&self) -> Severity {
+        self.severity.unwrap_or(Severity::Error)
+    }
+
+    pub fn limit(&self, argument: &str) -> Option<&ArgumentLimit> {
+        self.arguments
+            .iter()
+            .find(|(name, _)| name == argument)
+            .map(|(_, limit)| limit)
+    }
+
+    /// Reads the `field_arguments` map. A key that is not a `Type.field`
+    /// coordinate, or an entry that limits nothing, is reported and skipped.
+    fn map_from_yaml(
+        hash: &yaml_rust2::yaml::Hash,
+    ) -> std::collections::BTreeMap<FieldCoordinate, FieldArgumentsRule> {
+        let mut rules = std::collections::BTreeMap::new();
+        for (k, v) in hash {
+            let Some(key) = k.as_str() else {
+                continue;
+            };
+            let Some(coordinate) = FieldCoordinate::parse(key) else {
+                eprintln!(
+                    "{}: field_arguments key '{}' is not a Type.field coordinate. Skipping it.",
+                    "Warning".yellow(),
+                    key.yellow()
+                );
+                continue;
+            };
+            if let Some(rule) = Self::from_yaml(v, &coordinate) {
+                rules.insert(coordinate, rule);
+            }
+        }
+        rules
+    }
+
+    /// An entry maps each argument to `{ max: n }` or a list of values, beside
+    /// an optional `reason` and `severity`. Those two are told apart from
+    /// arguments of the same name by their value: a limit is never a string.
+    fn from_yaml(node: &Yaml, coordinate: &FieldCoordinate) -> Option<Self> {
+        let Some(hash) = node.as_hash() else {
+            eprintln!(
+                "{}: field_arguments entry '{}' should map arguments to limits. Skipping it.",
+                "Warning".yellow(),
+                coordinate.to_string().yellow()
+            );
+            return None;
+        };
+
+        let mut rule = Self::new(Vec::new());
+        for (k, v) in hash {
+            let Some(name) = k.as_str() else {
+                continue;
+            };
+            match (name, v) {
+                ("reason", Yaml::String(reason)) => rule.reason = Some(reason.clone()),
+                ("severity", Yaml::String(_)) => {
+                    rule.severity = Severity::from_yaml(v, "field_arguments")
+                }
+                _ => match ArgumentLimit::from_yaml(v) {
+                    Some(limit) if is_graphql_name(name) => {
+                        rule.arguments.push((name.to_string(), limit))
+                    }
+                    _ => eprintln!(
+                        "{}: field_arguments '{}' sets '{}' to something that is not \
+                         {{ max: n }} or a list of values. Skipping it.",
+                        "Warning".yellow(),
+                        coordinate.to_string().yellow(),
+                        name.yellow()
+                    ),
+                },
+            }
+        }
+
+        if rule.arguments.is_empty() {
+            eprintln!(
+                "{}: field_arguments entry '{}' limits no argument. Skipping it.",
+                "Warning".yellow(),
+                coordinate.to_string().yellow()
+            );
+            return None;
+        }
+        Some(rule)
+    }
+}
+
+impl ArgumentLimit {
+    fn from_yaml(node: &Yaml) -> Option<Self> {
+        if let Some(values) = node.as_vec() {
+            let parsed: Option<Vec<LimitValue>> =
+                values.iter().map(LimitValue::from_yaml).collect();
+            return parsed.filter(|v| !v.is_empty()).map(Self::Values);
+        }
+        if node.as_hash().is_some() {
+            return node["max"].as_i64().map(Self::Max);
+        }
+        None
     }
 }
 
@@ -1943,6 +2166,14 @@ impl Config {
             }
             paths
         })
+    }
+
+    /// The rules a project runs with: its own, over the top-level ones.
+    pub fn rules_for_project(&self, project: &ProjectConfig) -> RulesConfig {
+        match project.rules() {
+            Some(project_rules) => self.rules().merge(project_rules),
+            None => self.rules(),
+        }
     }
 
     pub fn get_codegen_config(&self, project: Option<&ProjectConfig>) -> CodegenConfig {
