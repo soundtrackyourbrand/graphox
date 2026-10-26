@@ -183,3 +183,60 @@ fn a_limit_the_schema_cannot_match_is_reported() {
         "{out}"
     );
 }
+
+#[test]
+#[ntest::timeout(20000)]
+fn codegen_warns_when_projects_sharing_a_facts_directory_differ() {
+    // The first project writes facts for the directory; the second, which
+    // turns them off itself, still has its definitions described there.
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("schema.graphql"), SCHEMA).unwrap();
+    for name in ["a", "b"] {
+        std::fs::create_dir_all(dir.path().join(name)).unwrap();
+        std::fs::write(
+            dir.path().join(name).join("q.graphql"),
+            format!("query Q{name} {{ album {{ tracks {{ total }} }} }}\n"),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        dir.path().join("graphox.yaml"),
+        "\
+projects:
+  - schema: schema.graphql
+    include: \"a/**/*.graphql\"
+    output_dir: generated
+    codegen:
+      emit_facts: true
+    rules:
+      field_arguments:
+        Album.tracks:
+          first: { max: 10 }
+  - schema: schema.graphql
+    include: \"b/**/*.graphql\"
+    output_dir: generated
+    codegen:
+      emit_facts: false
+    rules:
+      field_arguments:
+        Album.tracks:
+          first: { max: 20 }
+",
+    )
+    .unwrap();
+
+    let output = graphox(env!("CARGO_BIN_EXE_graphox"), dir.path())
+        .arg("codegen")
+        .output()
+        .unwrap();
+    let out = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(out.contains("declare different field_arguments"), "{out}");
+    assert!(
+        dir.path().join("generated/graphql-facts.json").exists(),
+        "{out}"
+    );
+}

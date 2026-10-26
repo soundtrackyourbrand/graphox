@@ -667,7 +667,12 @@ async fn execute_codegen(
                     e.insert(limits);
                 }
                 std::collections::btree_map::Entry::Occupied(e) => {
-                    if *e.get() != limits && cfg.get_codegen_config(Some(project)).emit_facts() {
+                    // Whether facts are written is the directory's setting,
+                    // taken from its first project like the limits.
+                    let dir_emits_facts = dir_to_config
+                        .get(&canon_out_dir_path)
+                        .is_some_and(|config| config.emit_facts());
+                    if *e.get() != limits && dir_emits_facts {
                         eprintln!(
                             "{}: projects sharing output_dir '{}' declare different \
                              field_arguments, and graphql-facts.json holds one set. \
