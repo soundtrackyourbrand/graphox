@@ -174,20 +174,18 @@ mod tests {
 
     #[test]
     fn an_unchanged_manifest_is_not_rewritten() {
-        let dir =
-            std::env::temp_dir().join(format!("graphox-manifest-test-{}", std::process::id()));
-        std::fs::create_dir_all(&dir).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let dir = dir.path();
         let ops = [operation("query A { a }", "/repo/a.ts", "A")];
         let config = CodegenConfig::default();
 
-        write_manifest(&dir, &ops, &[], &config).unwrap();
+        write_manifest(dir, &ops, &[], &config).unwrap();
         let path = dir.join(MANIFEST_FILE_NAME);
         let first = std::fs::metadata(&path).unwrap().modified().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        write_manifest(&dir, &ops, &[], &config).unwrap();
+        write_manifest(dir, &ops, &[], &config).unwrap();
         let second = std::fs::metadata(&path).unwrap().modified().unwrap();
 
-        std::fs::remove_dir_all(&dir).ok();
         assert_eq!(first, second);
     }
 }

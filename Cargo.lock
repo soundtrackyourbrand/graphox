@@ -983,6 +983,7 @@ dependencies = [
  "ntest",
  "pathdiff",
  "sonic-rs",
+ "tempfile",
 ]
 
 [[package]]
