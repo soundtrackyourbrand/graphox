@@ -78,6 +78,11 @@ pub struct Config {
     /// single-output fields above.
     #[serde(rename = "outputs")]
     pub outputs: Option<Vec<OutputConfig>>,
+    /// Absolute directory a relative module filename from the host is relative
+    /// to. Turbopack passes each module's path relative to its root
+    /// (`turbopack.root` in Next); hosts that pass absolute paths ignore this.
+    #[serde(rename = "root")]
+    pub root: Option<String>,
     /// File extension to append to generated import paths
     /// Options: "none" (default), "ts", "dts", "js"
     #[serde(rename = "emitExtensions", default)]
@@ -185,6 +190,17 @@ fn normalize(s: &str) -> String {
 /// target, so they were never true.
 fn to_posix_path(path: &str) -> String {
     path.replace('\\', "/")
+}
+
+/// Whether `path` is absolute on the host. A drive-letter path is, but the wasm
+/// guest does not recognise it as one.
+fn is_absolute_on_host(path: &str) -> bool {
+    let has_drive_letter = path
+        .as_bytes()
+        .first()
+        .is_some_and(|c| c.is_ascii_alphabetic())
+        && path.as_bytes().get(1) == Some(&b':');
+    Path::new(path).is_absolute() || path.starts_with('/') || has_drive_letter
 }
 
 /// A relative path rendered as an ES module specifier.
@@ -330,10 +346,14 @@ impl TransformVisitor {
 
         Self {
             outputs,
-            current_file: current_file
-                .as_deref()
-                .map(to_posix_path)
-                .map(PathBuf::from),
+            current_file: current_file.as_deref().map(to_posix_path).map(|file| {
+                match &config.root {
+                    Some(root) if !is_absolute_on_host(&file) => {
+                        PathBuf::from(to_posix_path(root)).join(file)
+                    }
+                    _ => PathBuf::from(file),
+                }
+            }),
             new_imports: HashMap::new(),
             graphql_ids: HashMap::new(),
             emit_extensions: config.emit_extensions.clone(),
@@ -378,6 +398,16 @@ impl TransformVisitor {
     /// alias instead — which is why the alias is required for cross-project use.
     fn get_import_path(&self, output_idx: usize, codegen_rel_path: &str) -> String {
         let output = &self.outputs[output_idx];
+        if output.package_root.is_some()
+            && let Some(file) = &self.current_file
+            && !is_absolute_on_host(&file.to_string_lossy())
+        {
+            self.fail(
+                "the host passed this module's path relative to its root, so which package \
+                 it belongs to is unknown. Set `root` to the directory the host resolves \
+                 module paths against (`turbopack.root` in Next).",
+            );
+        }
         let in_same_package = match (&output.package_root, &self.current_file) {
             (Some(root), Some(file)) => file.starts_with(root),
             // No package root configured: keep the single-output behaviour of
@@ -475,15 +505,7 @@ impl TransformVisitor {
             let index_abs_no_ext = strip_script_extension_path(&index_abs_path);
 
             let src_path = Path::new(src);
-            // A drive-letter path is absolute on the host, but the guest does not
-            // recognise it as one.
-            let has_drive_letter = src
-                .as_bytes()
-                .first()
-                .is_some_and(|c| c.is_ascii_alphabetic())
-                && src.as_bytes().get(1) == Some(&b':');
-            let is_absolute_looking =
-                src_path.is_absolute() || src.starts_with('/') || has_drive_letter;
+            let is_absolute_looking = is_absolute_on_host(src);
 
             let resolved_abs = if src.starts_with('.') {
                 Some(parent.join(src_path))
@@ -1301,6 +1323,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1330,6 +1353,7 @@ mod tests {
             emit_extensions: EmitExtensions::Ts,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1357,6 +1381,7 @@ mod tests {
             emit_extensions: EmitExtensions::Js,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1384,6 +1409,7 @@ mod tests {
             emit_extensions: EmitExtensions::Dts,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1418,6 +1444,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let source = r#"
@@ -1452,6 +1479,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         transform(
@@ -1478,6 +1506,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         transform(
@@ -1504,6 +1533,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let source = r#"
@@ -1532,6 +1562,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let source = r#"
@@ -1560,6 +1591,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1589,6 +1621,7 @@ mod tests {
             emit_extensions: EmitExtensions::Js,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1618,6 +1651,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1647,6 +1681,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         // Source has different whitespace
@@ -1697,6 +1732,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1727,6 +1763,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1756,6 +1793,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1785,6 +1823,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1814,6 +1853,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1837,6 +1877,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1873,6 +1914,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1915,6 +1957,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -1954,6 +1997,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         transform(
@@ -1984,6 +2028,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2020,6 +2065,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2050,6 +2096,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         transform(
@@ -2076,6 +2123,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2105,6 +2153,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2134,6 +2183,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2165,6 +2215,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2194,6 +2245,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2223,6 +2275,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2260,6 +2313,7 @@ mod tests {
             emit_extensions: EmitExtensions::Ts,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2339,6 +2393,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2391,6 +2446,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -2425,6 +2481,7 @@ mod tests {
             emit_extensions: EmitExtensions::None,
             import_alias: None,
             outputs: None,
+            root: None,
         };
 
         let output = transform(
@@ -3174,6 +3231,61 @@ mod tests {
         assert!(
             !output.contains('\\'),
             "no separator may survive, got:\n{output}"
+        );
+    }
+
+    // --- hosts that pass module paths relative to their root -----------------
+
+    /// The shape `createSWCPlugin` produces for one app: absolute output and
+    /// package root, and the alias its call sites import the entrypoint through.
+    fn root_relative_config(root: Option<&str>) -> Config {
+        Config {
+            outputs: Some(vec![OutputConfig {
+                output_dir: "/repo/apps/web/graphql".to_string(),
+                package_root: Some("/repo/apps/web".to_string()),
+                graphql_import_paths: Some(vec!["@/graphql".to_string()]),
+                manifest_data: Some(vec![ManifestEntry {
+                    source: "fragment Link on LinkRecord { id }".to_string(),
+                    path: "./fragments/link.codegen".to_string(),
+                    name: "LinkFragmentDoc".to_string(),
+                }]),
+                ..Default::default()
+            }]),
+            root: root.map(str::to_string),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_root_relative_filename_resolves_against_root() {
+        let output = transform(
+            "import { graphql } from \"@/graphql\";\nexport const L = graphql(`fragment Link on LinkRecord { id }`);",
+            root_relative_config(Some("/repo")),
+            "apps/web/fragments/link.ts",
+        );
+        assert!(
+            output.contains("from \"../graphql/fragments/link.codegen\""),
+            "got:\n{output}"
+        );
+    }
+
+    #[test]
+    fn test_root_relative_entrypoint_is_cleared() {
+        let output = transform(
+            "export const documents = { a: 1 }; export const graphql = () => documents;",
+            root_relative_config(Some("/repo")),
+            "apps/web/graphql/graphql.ts",
+        );
+        assert!(!output.contains("a: 1"), "got:\n{output}");
+    }
+
+    #[test]
+    #[should_panic(expected = "Set `root`")]
+    fn test_root_relative_filename_without_root_asks_for_it() {
+        transform(
+            "import { graphql } from \"@/graphql\";\nexport const L = graphql(`fragment Link on LinkRecord { id }`);",
+            root_relative_config(None),
+            "apps/web/fragments/link.ts",
         );
     }
 }

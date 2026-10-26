@@ -19,6 +19,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
 
+import { createRequire } from 'module';
 import { fileURLToPath } from 'url';
 
 describe('SWC Plugin WASM Wrapper', () => {
@@ -264,6 +265,45 @@ describe('SWC Plugin WASM Wrapper', () => {
         // Expected if WASM not built
         expect((e as Error).message).toContain('WASM plugin not found');
       }
+    });
+  });
+
+  describe('host-facing paths', () => {
+    function withDummyWasm<T>(run: (outputDir: string) => T): T {
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'swc-test-'));
+      const outputDir = path.join(tempDir, 'gen');
+      fs.mkdirSync(outputDir, { recursive: true });
+      const testDir = path.dirname(fileURLToPath(import.meta.url));
+      const dummyWasmPath = path.join(testDir, '..', 'wasm', 'graphox_swc_plugin.wasm');
+      const createdDummy = !fs.existsSync(dummyWasmPath);
+      if (createdDummy) fs.writeFileSync(dummyWasmPath, '');
+      try {
+        return run(outputDir);
+      } finally {
+        if (createdDummy) fs.unlinkSync(dummyWasmPath);
+        fs.rmSync(tempDir, { recursive: true });
+      }
+    }
+
+    it('names the bundled wasm by a specifier the package exports', () => {
+      withDummyWasm((outputDir) => {
+        const [pluginPath] = createSWCPlugin({ outputs: [{ outputDir }] });
+        const testDir = path.dirname(fileURLToPath(import.meta.url));
+
+        expect(pluginPath).toBe('@graphox/swc-plugin/wasm/graphox_swc_plugin.wasm');
+        expect(createRequire(import.meta.url).resolve(pluginPath)).toBe(
+          path.join(testDir, '..', 'wasm', 'graphox_swc_plugin.wasm')
+        );
+      });
+    });
+
+    it('resolves root against cwd', () => {
+      withDummyWasm((outputDir) => {
+        const cwd = path.dirname(outputDir);
+        const [, config] = createSWCPlugin({ outputs: [{ outputDir }], root: '..' }, { cwd });
+
+        expect(config.root).toBe(path.dirname(cwd));
+      });
     });
   });
 

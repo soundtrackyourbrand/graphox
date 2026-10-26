@@ -78,45 +78,38 @@ export default defineConfig({
 });
 ```
 
-### Turbopack/Next.js Configuration
+### Next.js Configuration
 
 ```javascript
-// next.config.js
+// next.config.mjs
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { createSWCPlugin } from '@graphox/swc-plugin';
+
+const appDir = path.dirname(fileURLToPath(import.meta.url));
+// Turbopack passes the plugin each module's path relative to this directory:
+// here the root of a workspace two levels above the app
+const root = path.join(appDir, '..', '..');
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  turbopack: { root },
   experimental: {
-    turbo: {
-      rules: {
-        '*.{ts,tsx}': [
-          {
-            loader: 'next-swc-loader',
-            options: {
-              jsc: {
-                parser: {
-                  syntax: 'typescript',
-                  tsx: true,
-                },
-                experimental: {
-                  plugins: [
-                    createSWCPlugin({
-                      manifestPath: './__generated__/manifest.json',
-                      outputDir: './__generated__'
-                    })
-                  ],
-                },
-              },
-            },
-          },
-        ],
-      },
-    },
+    swcPlugins: [
+      createSWCPlugin({
+        outputs: [{ outputDir: path.join(appDir, '__generated__') }],
+        root,
+      }),
+    ],
   },
 };
 
-module.exports = nextConfig;
+export default nextConfig;
 ```
+
+Set `turbopack.root` and `root` to the same directory: the workspace root in a
+monorepo, the app's directory otherwise. Webpack builds pass absolute paths and
+ignore `root`.
 
 ## Multiple Projects
 
@@ -191,6 +184,7 @@ Output directories must be distinct, and must not nest.
 |--------|------|----------|-------------|
 | `outputs` | `object[]` | Yes* | One entry per project; see below. Preferred over the single-output fields |
 | `emitExtensions` | `string` | No | File extension for generated imports: `"none"` (default), `"ts"`, `"js"`, `"dts"` |
+| `root` | `string` | No | Directory the host's module paths are relative to, for a host that passes relative ones (Turbopack). Resolved against `cwd` |
 
 Each entry in `outputs`:
 
@@ -214,6 +208,8 @@ You can override the WASM plugin path by setting the `GRAPHOX_SWC_PLUGIN_PATH` e
 ```bash
 export GRAPHOX_SWC_PLUGIN_PATH=$(pwd)/target/wasm32-wasip1/release/graphox_swc_plugin.wasm
 ```
+
+The override is an absolute path, which Turbopack does not load.
 
 ### emitExtensions
 

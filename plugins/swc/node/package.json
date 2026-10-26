@@ -9,7 +9,8 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
-    }
+    },
+    "./wasm/graphox_swc_plugin.wasm": "./wasm/graphox_swc_plugin.wasm"
   },
   "scripts": {
     "build": "tsc",
