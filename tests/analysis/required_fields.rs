@@ -172,6 +172,107 @@ fn test_required_field_type_override() {
     assert_no_diagnostics(&diagnostics);
 }
 
+fn required_diagnostics(text: &str, yaml: &str) -> Vec<Diagnostic> {
+    let doc = create_doc("file:///test.graphql", text);
+    let yaml_docs = yaml_rust2::YamlLoader::load_from_str(yaml).unwrap();
+    let rules = RulesConfig::from_yaml(&yaml_docs[0]).unwrap();
+    let config = Config::default().with_rules(rules);
+
+    doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    )
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_required_field_coordinate() {
+    let diagnostics = required_diagnostics(
+        r#"query GetData { users { id } posts { title } }"#,
+        r#"
+          required_fields:
+            User.name: true
+        "#,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'name' must be selected in 'users'",
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_required_field_coordinate_overrides_global() {
+    let diagnostics = required_diagnostics(
+        r#"query GetUsers { users { name } }"#,
+        r#"
+          required_fields:
+            id: true
+            User.id: false
+        "#,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_required_field_coordinate_long_form() {
+    let diagnostics = required_diagnostics(
+        r#"query GetUsers { users { id } }"#,
+        r#"
+          required_fields:
+            User.name:
+              enabled: ["query"]
+              severity: warning
+              reason: Names are shown everywhere
+        "#,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_severity(&diagnostics[0], DiagnosticSeverity::WARNING);
+    assert!(
+        diagnostics[0]
+            .message
+            .contains("Names are shown everywhere"),
+        "reason missing from: {}",
+        diagnostics[0].message
+    );
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_required_field_coordinate_and_type_namespace_combine() {
+    let diagnostics = required_diagnostics(
+        r#"query GetUsers { users { id } }"#,
+        r#"
+          required_fields:
+            User:
+              name: true
+            User.password: true
+        "#,
+    );
+
+    assert_diagnostics_count(&diagnostics, 2);
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'name' must be selected in 'users'",
+    );
+    assert_diagnostic_with_message(
+        &diagnostics,
+        "Required field 'password' must be selected in 'users'",
+    );
+}
+
 #[test]
 #[ntest::timeout(3000)]
 fn test_required_field_specific_operation_query() {

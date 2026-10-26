@@ -286,6 +286,55 @@ fn test_forbidden_field_type_override() {
     assert_no_diagnostics(&diagnostics);
 }
 
+fn forbidden_diagnostics(text: &str, yaml: &str) -> Vec<Diagnostic> {
+    let doc = create_doc("file:///test.graphql", text);
+    let yaml_docs = yaml_rust2::YamlLoader::load_from_str(yaml).unwrap();
+    let rules = RulesConfig::from_yaml(&yaml_docs[0]).unwrap();
+    let config = Config::default().with_rules(rules);
+
+    doc.get_semantic_diagnostics(
+        &fixtures::user_with_posts_schema()
+            .clone()
+            .validate()
+            .unwrap(),
+        &[],
+        None,
+        Some(&config),
+        false,
+        true,
+    )
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_forbidden_field_coordinate() {
+    let diagnostics = forbidden_diagnostics(
+        r#"query GetData { users { name } posts { title } }"#,
+        r#"
+          forbidden_fields:
+            User.name: true
+        "#,
+    );
+
+    assert_diagnostics_count(&diagnostics, 1);
+    assert_diagnostic_with_message(&diagnostics, "Field 'name' is forbidden on type 'User'");
+}
+
+#[test]
+#[ntest::timeout(3000)]
+fn test_forbidden_field_coordinate_overrides_global() {
+    let diagnostics = forbidden_diagnostics(
+        r#"query GetUsers { users { password } }"#,
+        r#"
+          forbidden_fields:
+            password: true
+            User.password: false
+        "#,
+    );
+
+    assert_no_diagnostics(&diagnostics);
+}
+
 #[test]
 #[ntest::timeout(3000)]
 fn test_forbidden_field_same_response_key_different_types() {
