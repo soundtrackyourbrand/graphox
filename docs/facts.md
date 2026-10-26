@@ -24,8 +24,15 @@ file at the next codegen.
 A definition is keyed the way the `graphql()` overloads in `graphql.ts` and
 the entries of `manifest.json` are: by the source text of the block it was
 written in. That text is the whole template literal or `.graphql` file, so
-every definition written in one block shares it. `document` names the export
-`graphql()` returns for that definition.
+every definition written in one block shares it.
+
+`graphql()` returns one document per block, and `returned` marks the
+definition it is: the block's first operation by type name, or, in a block of
+fragments alone, its first fragment by name. Its other definitions still have
+entries of their own, with `returned: false`. `document` names each
+definition's export. A fragment's document is only exported when codegen generates
+documents for fragments (`generate_ast_for_fragments` or fragment masking);
+otherwise `graphql()` gives a block of fragments its type alone.
 
 ## Format
 
@@ -36,8 +43,8 @@ line. Keys within an object are sorted.
 
 ```json
 {"version":1,"definitions":[
-{"document":"PageQueryDocument","kind":"query","name":"Page","selections":[…],"source":"…","type":"Query","variables":[…]},
-{"document":"RowDocument","kind":"fragment","name":"Row","selections":[…],"source":"…","type":"Track"}
+{"document":"PageQueryDocument","kind":"query","name":"Page","returned":true,"selections":[…],"source":"…","type":"Query","variables":[…]},
+{"document":"RowDocument","kind":"fragment","name":"Row","returned":true,"selections":[…],"source":"…","type":"Track"}
 ]}
 ```
 
@@ -47,7 +54,8 @@ line. Keys within an object are sorted.
 |-----|---------|
 | `kind` | `query`, `mutation`, `subscription` or `fragment` |
 | `name` | The definition's name; `null` for an anonymous operation |
-| `document` | The export `graphql()` returns for it |
+| `document` | The name of its document export |
+| `returned` | Whether `graphql()` returns this definition for its block |
 | `source` | The source text of the block it was written in |
 | `type` | The root type of an operation, or a fragment's type condition |
 | `variables` | Operations only: each variable's `name`, `type` as written, and its `default` value if it has one |

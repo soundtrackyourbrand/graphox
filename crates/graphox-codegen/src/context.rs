@@ -633,8 +633,8 @@ pub struct OperationGenerated {
     /// Types are erased when the app is built and the AST is not, so this is the
     /// part a bundle pays for at runtime.
     pub ast_bytes: usize,
-    /// This operation's line of `graphql-facts.json`, when `emit_facts` is on.
-    pub facts: Option<String>,
+    /// This operation's entry in `graphql-facts.json`, when `emit_facts` is on.
+    pub facts: Option<sonic_rs::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -651,8 +651,8 @@ pub struct FragmentGenerated {
     /// fragment AST generation is enabled for a non-type-only fragment, or
     /// fragment masking emits a runtime document.
     pub ast_bytes: usize,
-    /// This fragment's line of `graphql-facts.json`, when `emit_facts` is on.
-    pub facts: Option<String>,
+    /// This fragment's entry in `graphql-facts.json`, when `emit_facts` is on.
+    pub facts: Option<sonic_rs::Value>,
 }
 
 #[derive(Debug, Default, Clone)]

@@ -15,6 +15,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::context::{FragmentGenerated, OperationGenerated};
+use crate::entrypoint::GraphqlOverloads;
 
 pub const FACTS_FILE_NAME: &str = "graphql-facts.json";
 
@@ -34,13 +35,14 @@ impl FragmentScope<'_> {
     }
 }
 
-/// The facts of one operation, as one line of compact JSON.
+/// The facts of one operation. `returned` is added when the directory's file
+/// is written, since it depends on the other definitions there.
 pub fn operation_facts(
     operation: &Operation,
     source: &str,
     document_name: &str,
     fragments: &FragmentScope,
-) -> String {
+) -> Json {
     let kind = match operation.operation_type {
         OperationType::Query => "query",
         OperationType::Mutation => "mutation",
@@ -75,16 +77,16 @@ pub fn operation_facts(
         "selections",
         selections(&operation.selection_set, fragments, &mut Vec::new()),
     );
-    sonic_rs::to_string(&entry).expect("facts serialize")
+    entry
 }
 
-/// The facts of one fragment, as one line of compact JSON.
+/// The facts of one fragment. `returned` is added as for an operation.
 pub fn fragment_facts(
     fragment: &Fragment,
     source: &str,
     document_name: &str,
     fragments: &FragmentScope,
-) -> String {
+) -> Json {
     let mut entry = json!({
         "kind": "fragment",
         "name": fragment.name.as_str(),
@@ -99,7 +101,7 @@ pub fn fragment_facts(
         "selections",
         selections(&fragment.selection_set, fragments, &mut expanding),
     );
-    sonic_rs::to_string(&entry).expect("facts serialize")
+    entry
 }
 
 /// `expanding` holds the fragments being expanded on the way here, so a cycle,
@@ -231,22 +233,33 @@ fn value(written: &Value) -> Json {
 
 /// The whole file: the version, then one definition per line, operations
 /// first. Definitions codegen produced without facts are left out.
+///
+/// Each definition is marked `returned` when `graphql()` returns its document
+/// for its source text, which only one of the definitions in a block is.
 pub fn generate_facts_content(
     operations: &[OperationGenerated],
     fragments: &[FragmentGenerated],
 ) -> String {
-    let lines: Vec<&str> = operations
+    let overloads = GraphqlOverloads::new(operations, fragments);
+    let definitions = operations
         .iter()
-        .filter_map(|op| op.facts.as_deref())
-        .chain(fragments.iter().filter_map(|frag| frag.facts.as_deref()))
-        .collect();
+        .filter_map(|op| Some((op.facts.as_ref()?, &op.source_text, &op.document_name)))
+        .chain(fragments.iter().filter_map(|frag| {
+            Some((frag.facts.as_ref()?, &frag.source_text, &frag.document_name))
+        }));
 
     let mut content = format!("{{\"version\":{FACTS_VERSION},\"definitions\":[");
-    for (i, line) in lines.iter().enumerate() {
-        content.push_str(if i == 0 { "\n" } else { ",\n" });
-        content.push_str(line);
+    let mut first = true;
+    for (facts, source, document_name) in definitions {
+        let mut entry = facts.clone();
+        let returned = overloads.document_for(source) == Some(document_name.as_str());
+        put(&mut entry, "returned", returned);
+
+        content.push_str(if first { "\n" } else { ",\n" });
+        first = false;
+        content.push_str(&sonic_rs::to_string(&entry).expect("facts serialize"));
     }
-    if !lines.is_empty() {
+    if !first {
         content.push('\n');
     }
     content.push_str("]}\n");
