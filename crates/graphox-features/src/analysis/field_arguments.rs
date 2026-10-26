@@ -128,6 +128,7 @@ fn defaults(
         rules,
         defaults: &defaults,
         expanding: Vec::new(),
+        visited: HashSet::default(),
         reported: HashSet::default(),
         findings,
     };
@@ -141,6 +142,8 @@ struct DefaultsWalk<'a, 'f> {
     defaults: &'a HashMap<&'a str, &'a Node<Value>>,
     /// The fragments being expanded on the way here, outermost first.
     expanding: Vec<&'a str>,
+    /// Fragments already expanded in this operation.
+    visited: HashSet<&'a str>,
     /// (variable, coordinate, argument) already reported.
     reported: HashSet<(String, String, String)>,
     findings: &'f mut Vec<Finding>,
@@ -157,8 +160,11 @@ impl<'a> DefaultsWalk<'a, '_> {
                 Selection::InlineFragment(inline) => self.selections(&inline.selection_set),
                 Selection::FragmentSpread(spread) => {
                     let name = spread.fragment_name.as_str();
-                    // A cycle is rejected by validation; stop rather than recurse.
-                    if self.expanding.contains(&name) {
+                    // A fragment yields the same findings wherever the operation
+                    // spreads it, so it is expanded once. That also stops a
+                    // cycle, which validation rejects but a partial document
+                    // can hold.
+                    if !self.visited.insert(name) {
                         continue;
                     }
                     let fragment = self

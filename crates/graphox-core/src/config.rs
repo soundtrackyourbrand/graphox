@@ -2172,7 +2172,7 @@ impl Config {
     pub fn rules_for_project(&self, project: &ProjectConfig) -> RulesConfig {
         match project.rules() {
             Some(project_rules) => self.rules().merge(project_rules),
-            None => self.rules().clone(),
+            None => self.rules(),
         }
     }
 

@@ -612,8 +612,16 @@ async fn execute_codegen(
         let mut dir_to_limits: BTreeMap<PathBuf, codegen::facts::Limits> = BTreeMap::new();
         let mut dir_to_schema_import: BTreeMap<PathBuf, Option<String>> = BTreeMap::new();
 
-        let mut project_indices: HashSet<usize> = project_operations.keys().cloned().collect();
-        project_indices.extend(project_fragments.keys().cloned());
+        // In config order, so the project whose settings a shared output
+        // directory takes is the same on every run.
+        let mut project_indices: Vec<usize> = project_operations
+            .keys()
+            .chain(project_fragments.keys())
+            .copied()
+            .collect::<HashSet<usize>>()
+            .into_iter()
+            .collect();
+        project_indices.sort_unstable();
 
         for project_idx in project_indices {
             let Some(project) = cfg.projects().get(project_idx) else {

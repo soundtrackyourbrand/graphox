@@ -101,9 +101,10 @@ fn literals_are_checked_in_embedded_documents_at_their_own_position() {
     );
 
     let (out, _) = check(&dir, &[]);
-    // Line 4, where `3000` is written in the TypeScript file.
+    // Line 4, column 39, where `3000` is written in the TypeScript file. The
+    // template starts with a newline and indentation before the GraphQL.
     assert!(
-        out.contains("[4:36]") && out.contains("'Playlist.tracks(first:)' is 3000 here"),
+        out.contains("[4:39]") && out.contains("'Playlist.tracks(first:)' is 3000 here"),
         "{out}"
     );
 }

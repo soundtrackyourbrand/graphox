@@ -405,10 +405,7 @@ fn run_field_arguments(
     let rules_by_project: Vec<graphox_core::config::RulesConfig> = config
         .projects()
         .iter()
-        .map(|project| match project.rules() {
-            Some(project_rules) => config.rules().merge(project_rules),
-            None => config.rules().clone(),
-        })
+        .map(|project| config.rules_for_project(project))
         .collect();
     let in_scope: Vec<bool> = rules_by_project
         .iter()
@@ -439,7 +436,11 @@ fn run_field_arguments(
             };
             for block in doc.get_graphql_trees() {
                 let offset = block.offset;
-                let text = doc.get_node_text(block.tree.root_node(), offset);
+                let root = block.tree.root_node();
+                let text = doc.get_node_text(root, offset);
+                // The parsed text starts where the tree's root does, which in
+                // a template literal can be after leading whitespace.
+                let text_start = offset + root.start_byte();
                 let masked = graphox_core::utils::mask_interpolations(&text);
                 let Ok((parsed, _)) = doc.get_executable_doc(schema, offset, &masked) else {
                     continue;
@@ -448,8 +449,8 @@ fn run_field_arguments(
                 for finding in
                     field_arguments::check_block(&parsed, &resolved.context.all_fragments, rules)
                 {
-                    let start = offset + finding.range.start;
-                    let end = offset + finding.range.end;
+                    let start = text_start + finding.range.start;
+                    let end = text_start + finding.range.end;
                     if ignored_on_line(doc, end) {
                         continue;
                     }
