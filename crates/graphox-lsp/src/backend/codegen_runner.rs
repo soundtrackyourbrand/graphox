@@ -820,19 +820,7 @@ pub async fn run_codegen(
         (k, v, frags)
     }) {
         let codegen_config = dir_to_config.get(&out_dir_path).unwrap();
-        // Deduplicate operations by name and source
-        ops.sort_by(|a, b| {
-            a.operation_type_name
-                .cmp(&b.operation_type_name)
-                .then_with(|| a.source_text.cmp(&b.source_text))
-        });
-        ops.dedup_by(|a, b| {
-            a.operation_type_name == b.operation_type_name && a.source_text == b.source_text
-        });
-
-        // Deduplicate fragments by source
-        frags.sort_by(|a, b| a.source_text.cmp(&b.source_text));
-        frags.dedup_by(|a, b| a.source_text == b.source_text);
+        graphox_codegen::dedup_definitions(&mut ops, &mut frags);
 
         let entrypoint_path = out_dir_path.join(format!("{}.ts", codegen_config.entrypoint_name()));
         let content = graphox_codegen::generate_entrypoint_content(
