@@ -748,81 +748,19 @@ async fn execute_codegen(
                         return Err(());
                     }
 
-                    let manifest_path = out_dir_path.join("manifest.json");
-                    let generate_ast_for_frags = codegen_config.generate_ast_for_fragments();
-                    let manifest_entries: Vec<_> = ops
-                        .iter()
-                        .map(|op| {
-                            let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
-                                .unwrap_or_else(|| op.codegen_path.clone());
-                            let mut path_str = utils::to_posix_path(&rel_path);
-                            if !path_str.starts_with('.')
-                                && !path_str.starts_with('/')
-                                && !rel_path.is_absolute()
-                            {
-                                path_str = format!("./{}", path_str);
-                            }
-                            let path_no_ext = if path_str.ends_with(".ts") {
-                                &path_str[..path_str.len() - 3]
-                            } else {
-                                &path_str
-                            };
-
-                            sonic_rs::json!({
-                                "source": op.source_text,
-                                "path": path_no_ext,
-                                "name": op.document_name
-                            })
-                        })
-                        .chain(
-                            frags
-                                .iter()
-                                .filter(|_| {
-                                    generate_ast_for_frags
-                                        || codegen_config.fragment_masking_mode().is_enabled()
-                                })
-                                .map(|frag| {
-                                    let rel_path =
-                                        pathdiff::diff_paths(&frag.codegen_path, &out_dir_path)
-                                            .unwrap_or_else(|| frag.codegen_path.clone());
-                                    let mut path_str = utils::to_posix_path(&rel_path);
-                                    if !path_str.starts_with('.')
-                                        && !path_str.starts_with('/')
-                                        && !rel_path.is_absolute()
-                                    {
-                                        path_str = format!("./{}", path_str);
-                                    }
-                                    let path_no_ext = if path_str.ends_with(".ts") {
-                                        &path_str[..path_str.len() - 3]
-                                    } else {
-                                        &path_str
-                                    };
-
-                                    sonic_rs::json!({
-                                        "source": frag.source_text,
-                                        "path": path_no_ext,
-                                        "name": frag.document_name
-                                    })
-                                }),
-                        )
-                        .collect();
-
-                    let manifest_json = sonic_rs::to_string_pretty(&manifest_entries).unwrap();
-
-                    let mut write_manifest = true;
-                    if manifest_path.exists()
-                        && let Ok(existing) = std::fs::read_to_string(&manifest_path)
-                        && existing == manifest_json
-                    {
-                        write_manifest = false;
-                    }
-                    if write_manifest && let Err(e) = std::fs::write(&manifest_path, manifest_json)
-                    {
+                    if let Err(e) = codegen::manifest::write_manifest(
+                        &out_dir_path,
+                        &ops,
+                        &frags,
+                        &codegen_config,
+                    ) {
                         eprintln!(
                             "{}: {} (manifest: {}, dir exists: {})",
                             "Failed to write manifest".red(),
                             e,
-                            manifest_path.display(),
+                            out_dir_path
+                                .join(codegen::manifest::MANIFEST_FILE_NAME)
+                                .display(),
                             out_dir_path.exists()
                         );
                         return Err(());
@@ -1389,7 +1327,7 @@ fn surgical_clean(dir: &Path, verbose: bool, entrypoint_name: &str) -> Result<()
     let mut known_files = vec![
         format!("{}.ts", entrypoint_name),
         "graphql.ts".to_string(),
-        "manifest.json".to_string(),
+        codegen::manifest::MANIFEST_FILE_NAME.to_string(),
         "permissions.ts".to_string(),
         "fragment-masking.ts".to_string(),
         "index.ts".to_string(),

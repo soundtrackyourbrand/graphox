@@ -983,6 +983,7 @@ dependencies = [
  "ls-types",
  "ntest",
  "pathdiff",
+ "sonic-rs",
 ]
 
 [[package]]

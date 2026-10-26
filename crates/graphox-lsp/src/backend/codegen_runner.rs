@@ -922,85 +922,21 @@ pub async fn run_codegen(
                 .await;
         }
 
-        let manifest_path = out_dir_path.join("manifest.json");
-        let generate_ast_for_frags = codegen_config.generate_ast_for_fragments();
-        let manifest_entries: Vec<_> = ops
-            .iter()
-            .map(|op| {
-                let rel_path = pathdiff::diff_paths(&op.codegen_path, &out_dir_path)
-                    .unwrap_or_else(|| op.codegen_path.clone());
-                let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
-                if !path_str.starts_with('.')
-                    && !path_str.starts_with('/')
-                    && !rel_path.is_absolute()
-                {
-                    path_str = format!("./{}", path_str);
-                }
-                let path_no_ext = if path_str.ends_with(".ts") {
-                    &path_str[..path_str.len() - 3]
-                } else {
-                    &path_str
-                };
-
-                serde_json::json!({
-                    "source": op.source_text,
-                    "path": path_no_ext,
-                    "name": op.document_name
-                })
-            })
-            .chain(
-                frags
-                    .iter()
-                    .filter(|_| {
-                        generate_ast_for_frags
-                            || codegen_config.fragment_masking_mode().is_enabled()
-                    })
-                    .map(|frag| {
-                        let rel_path = pathdiff::diff_paths(&frag.codegen_path, &out_dir_path)
-                            .unwrap_or_else(|| frag.codegen_path.clone());
-                        let mut path_str = graphox_core::utils::to_posix_path(&rel_path);
-                        if !path_str.starts_with('.')
-                            && !path_str.starts_with('/')
-                            && !rel_path.is_absolute()
-                        {
-                            path_str = format!("./{}", path_str);
-                        }
-                        let path_no_ext = if path_str.ends_with(".ts") {
-                            &path_str[..path_str.len() - 3]
-                        } else {
-                            &path_str
-                        };
-
-                        serde_json::json!({
-                            "source": frag.source_text,
-                            "path": path_no_ext,
-                            "name": frag.document_name
-                        })
-                    }),
-            )
-            .collect();
-
-        if let Ok(manifest_json) = serde_json::to_string_pretty(&manifest_entries) {
-            let mut should_write_manifest = true;
-            if manifest_path.exists()
-                && let Ok(existing) = std::fs::read_to_string(&manifest_path)
-                && existing == manifest_json
-            {
-                should_write_manifest = false;
-            }
-
-            if should_write_manifest && let Err(e) = std::fs::write(&manifest_path, manifest_json) {
-                client
-                    .log_message(
-                        MessageType::ERROR,
-                        format!(
-                            "Failed to write manifest file {}: {}",
-                            manifest_path.display(),
-                            e
-                        ),
-                    )
-                    .await;
-            }
+        if let Err(e) =
+            graphox_codegen::manifest::write_manifest(&out_dir_path, &ops, &frags, codegen_config)
+        {
+            client
+                .log_message(
+                    MessageType::ERROR,
+                    format!(
+                        "Failed to write manifest file {}: {}",
+                        out_dir_path
+                            .join(graphox_codegen::manifest::MANIFEST_FILE_NAME)
+                            .display(),
+                        e
+                    ),
+                )
+                .await;
         }
     }
 
