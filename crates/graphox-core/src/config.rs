@@ -374,6 +374,16 @@ impl RepeatedSelectionsRule {
     }
 }
 
+/// Whether `name` is a GraphQL name: a letter or underscore, then letters,
+/// digits and underscores.
+fn is_graphql_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RulesConfig {
     required_fields: Option<AHashMap<String, FieldRule>>,
@@ -550,6 +560,98 @@ impl RulesConfig {
         merged
     }
 
+    /// Reads a `required_fields` or `forbidden_fields` map into its global
+    /// rules and its rules per type. A key is one of three things:
+    ///
+    /// - a field name with a rule (`id: true`), which applies on every type;
+    /// - a type name holding field rules (`User: { email: true }`);
+    /// - a schema coordinate with a rule (`User.email: true`), the same as the
+    ///   nested form for one field.
+    ///
+    /// A field rule set both ways is reported, and the later entry wins.
+    fn field_rules_from_yaml(
+        hash: &yaml_rust2::yaml::Hash,
+        rule_name: &str,
+    ) -> (
+        AHashMap<String, FieldRule>,
+        AHashMap<String, AHashMap<String, FieldRule>>,
+    ) {
+        let mut global_fields = AHashMap::default();
+        let mut type_specific_fields: AHashMap<String, AHashMap<String, FieldRule>> =
+            AHashMap::default();
+
+        let insert_for_type = |types: &mut AHashMap<String, AHashMap<String, FieldRule>>,
+                               type_name: &str,
+                               field_name: &str,
+                               rule: FieldRule| {
+            let previous = types
+                .entry(type_name.to_string())
+                .or_default()
+                .insert(field_name.to_string(), rule);
+            if previous.is_some() {
+                eprintln!(
+                    "{}: {} sets '{}.{}' more than once. Using the last entry.",
+                    "Warning".yellow(),
+                    rule_name.yellow(),
+                    type_name.yellow(),
+                    field_name.yellow()
+                );
+            }
+        };
+
+        for (k, v) in hash {
+            let Some(key) = k.as_str() else {
+                continue;
+            };
+
+            if let Some((type_name, field_name)) = key.split_once('.') {
+                if !is_graphql_name(type_name) || !is_graphql_name(field_name) {
+                    eprintln!(
+                        "{}: {} key '{}' is not a field name, a type name or a Type.field coordinate. Skipping it.",
+                        "Warning".yellow(),
+                        rule_name.yellow(),
+                        key.yellow()
+                    );
+                    continue;
+                }
+                match FieldRule::from_yaml(v, field_name) {
+                    Some(rule) => {
+                        insert_for_type(&mut type_specific_fields, type_name, field_name, rule)
+                    }
+                    None => eprintln!(
+                        "{}: {} entry '{}' is not a field rule. Skipping it.",
+                        "Warning".yellow(),
+                        rule_name.yellow(),
+                        key.yellow()
+                    ),
+                }
+                continue;
+            }
+
+            // Distinguish between field rule and type namespace
+            if v.as_bool().is_some()
+                || v.as_vec().is_some()
+                || v["enabled"].as_str().is_some()
+                || v["enabled"].as_bool().is_some()
+                || v["enabled"].as_vec().is_some()
+            {
+                if let Some(rule) = FieldRule::from_yaml(v, key) {
+                    global_fields.insert(key.to_string(), rule);
+                }
+            } else if let Some(type_hash) = v.as_hash() {
+                for (fk, fv) in type_hash {
+                    if let Some(field_key) = fk.as_str()
+                        && let Some(rule) = FieldRule::from_yaml(fv, field_key)
+                    {
+                        insert_for_type(&mut type_specific_fields, key, field_key, rule);
+                    }
+                }
+            }
+        }
+
+        (global_fields, type_specific_fields)
+    }
+
     pub fn from_yaml(node: &Yaml) -> Option<Self> {
         if node.is_null() || node.is_badvalue() {
             return None;
@@ -557,37 +659,9 @@ impl RulesConfig {
 
         let mut rules = RulesConfig::default();
 
-        if let Some(rf_hash) = node["required_fields"].as_hash() {
-            let mut global_fields = AHashMap::default();
-            let mut type_specific_fields = AHashMap::default();
-
-            for (k, v) in rf_hash {
-                if let Some(key) = k.as_str() {
-                    // Distinguish between field rule and type namespace
-                    if v.as_bool().is_some()
-                        || v.as_vec().is_some()
-                        || v["enabled"].as_str().is_some()
-                        || v["enabled"].as_bool().is_some()
-                        || v["enabled"].as_vec().is_some()
-                    {
-                        if let Some(rule) = FieldRule::from_yaml(v, key) {
-                            global_fields.insert(key.to_string(), rule);
-                        }
-                    } else if let Some(type_hash) = v.as_hash() {
-                        // It's a type namespace
-                        let mut field_rules = AHashMap::default();
-                        for (fk, fv) in type_hash {
-                            if let (Some(field_key), Some(rule)) = (
-                                fk.as_str(),
-                                FieldRule::from_yaml(fv, fk.as_str().unwrap_or_default()),
-                            ) {
-                                field_rules.insert(field_key.to_string(), rule);
-                            }
-                        }
-                        type_specific_fields.insert(key.to_string(), field_rules);
-                    }
-                }
-            }
+        if let Some(hash) = node["required_fields"].as_hash() {
+            let (global_fields, type_specific_fields) =
+                Self::field_rules_from_yaml(hash, "required_fields");
             rules.required_fields = Some(global_fields);
             rules.required_fields_by_type = Some(type_specific_fields);
         }
@@ -598,37 +672,9 @@ impl RulesConfig {
             rules.required_fields_by_type = Some(AHashMap::default());
         }
 
-        if let Some(ff_hash) = node["forbidden_fields"].as_hash() {
-            let mut global_fields = AHashMap::default();
-            let mut type_specific_fields = AHashMap::default();
-
-            for (k, v) in ff_hash {
-                if let Some(key) = k.as_str() {
-                    // Distinguish between field rule and type namespace
-                    if v.as_bool().is_some()
-                        || v.as_vec().is_some()
-                        || v["enabled"].as_str().is_some()
-                        || v["enabled"].as_bool().is_some()
-                        || v["enabled"].as_vec().is_some()
-                    {
-                        if let Some(rule) = FieldRule::from_yaml(v, key) {
-                            global_fields.insert(key.to_string(), rule);
-                        }
-                    } else if let Some(type_hash) = v.as_hash() {
-                        // It's a type namespace
-                        let mut field_rules = AHashMap::default();
-                        for (fk, fv) in type_hash {
-                            if let (Some(field_key), Some(rule)) = (
-                                fk.as_str(),
-                                FieldRule::from_yaml(fv, fk.as_str().unwrap_or_default()),
-                            ) {
-                                field_rules.insert(field_key.to_string(), rule);
-                            }
-                        }
-                        type_specific_fields.insert(key.to_string(), field_rules);
-                    }
-                }
-            }
+        if let Some(hash) = node["forbidden_fields"].as_hash() {
+            let (global_fields, type_specific_fields) =
+                Self::field_rules_from_yaml(hash, "forbidden_fields");
             rules.forbidden_fields = Some(global_fields);
             rules.forbidden_fields_by_type = Some(type_specific_fields);
         }

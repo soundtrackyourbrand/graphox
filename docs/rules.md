@@ -162,6 +162,18 @@ rules:
         reason: "Names are required for display"
 ```
 
+A type-specific rule can also be written as a schema coordinate, `Type.field`.
+It means the same as the nested form, and the two can be mixed:
+
+```yaml
+rules:
+  required_fields:
+    User.email: true
+    User.name:
+      enabled: ["query"]
+      reason: "Names are required for display"
+```
+
 **Options per field:**
 - `true` - Required in all operations (query, mutation, subscription)
 - `false` - Disabled (field not required). If used inside a type namespace, it overrides a global rule.
@@ -169,7 +181,7 @@ rules:
 - `{ enabled: ..., reason: "..." }` - Specify rule and a reason that appears in diagnostics
 
 **Resolution Order:**
-1. Type-specific rule (e.g., `User: { email: true }`)
+1. Type-specific rule (e.g., `User: { email: true }` or `User.email: true`)
 2. Global rule (e.g., `email: true`)
 3. If neither exists, the field is not required.
 
@@ -243,6 +255,9 @@ rules:
         reason: "Use the dedicated audit system"
 ```
 
+As with `required_fields`, a type-specific rule can be written as a coordinate
+instead: `User.name: true` is the same as `User: { name: true }`.
+
 **Options per field:**
 - `true` - Forbidden in all operations (query, mutation, subscription)
 - `false` - Disabled (field not forbidden). If used inside a type namespace, it overrides a global rule.
@@ -250,7 +265,7 @@ rules:
 - `{ enabled: ..., reason: "..." }` - Specify rule and a reason that appears in diagnostics
 
 **Resolution Order:**
-1. Type-specific rule (e.g., `User: { name: true }`)
+1. Type-specific rule (e.g., `User: { name: true }` or `User.name: true`)
 2. Global rule (e.g., `name: true`)
 3. If neither exists, the field is not forbidden.
 
