@@ -133,6 +133,30 @@ export interface PluginConfig {
    * Options: "Ts", "Dts", "Js" or None (default)
    */
   emitExtensions?: 'Ts' | 'Dts' | 'Js' | 'None';
+
+  /**
+   * Directory the host's module paths are relative to, for a host that passes
+   * relative ones. Turbopack passes each module's path relative to its root
+   * (`turbopack.root` in Next), so set this to the same directory there. Hosts
+   * that pass absolute paths ignore it. Resolved against `options.cwd`, or the
+   * working directory.
+   */
+  root?: string;
+}
+
+// The WASM file is built using cargo build --target wasm32-wasip1
+// and placed in the wasm/ directory.
+const BUNDLED_WASM_PATH = path.join(_dirname, '..', 'wasm', 'graphox_swc_plugin.wasm');
+
+/**
+ * The bundled plugin as a package specifier, which `exports` serves.
+ *
+ * Turbopack loads a plugin as a module request and rejects an absolute path,
+ * and `@swc/core` ignores `exports` subpaths, so this names the file itself.
+ */
+function bundledWasmSpecifier(): string {
+  const pkg = JSON.parse(fs.readFileSync(path.join(_dirname, '..', 'package.json'), 'utf8'));
+  return `${pkg.name}/wasm/graphox_swc_plugin.wasm`;
 }
 
 /**
@@ -151,10 +175,8 @@ function getWasmPath(): string {
     console.warn(`GRAPHOX_SWC_PLUGIN_PATH is set but file not found at ${overridePath}. Falling back to default.`);
   }
 
-  // The WASM file is built using cargo build --target wasm32-wasip1
-  // and placed in the wasm/ directory.
-  const wasmPath = path.join(_dirname, '..', 'wasm', 'graphox_swc_plugin.wasm');
-  
+  const wasmPath = BUNDLED_WASM_PATH;
+
   if (!fs.existsSync(wasmPath)) {
     throw new Error(
       `WASM plugin not found at ${wasmPath}. ` +
@@ -681,6 +703,7 @@ export function createSWCPlugin(
   // artifact has not been built yet.
   const outputs = resolvePluginOutputs(config, options);
   const wasmPath = getWasmPath();
+  const pluginPath = wasmPath === BUNDLED_WASM_PATH ? bundledWasmSpecifier() : wasmPath;
 
   // Manifests are inlined so the wasm guest needs no filesystem access.
   const inlinedConfig: PluginConfig = {
@@ -690,9 +713,13 @@ export function createSWCPlugin(
     outputDir: outputs[0].outputDir,
     graphqlImportPaths: outputs[0].graphqlImportPaths,
     manifestData: outputs[0].manifestData,
+    root:
+      config.root === undefined
+        ? undefined
+        : path.resolve(options?.cwd || process.cwd(), config.root),
   };
 
-  return [wasmPath, inlinedConfig];
+  return [pluginPath, inlinedConfig];
 }
 
 /**
