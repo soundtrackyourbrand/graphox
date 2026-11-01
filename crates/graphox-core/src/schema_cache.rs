@@ -68,6 +68,10 @@ struct CacheEntry {
     sources: Vec<String>,
     /// Merged schema text ready for parsing
     merged_schema: String,
+    /// The length of each file's segment of `merged_schema`
+    /// ([`crate::utils::merge_schema_segments`]), each followed there by a
+    /// newline. Empty for an entry saved as merged text alone.
+    segment_lengths: Vec<usize>,
     /// Metadata for validation
     metadata: CacheMetadata,
 }
@@ -208,7 +212,7 @@ fn rename_tmp_into_place(tmp_path: &Path, final_path: &Path) -> io::Result<()> {
 }
 
 /// Leads every entry, so one written in an earlier format is not misread.
-const ENTRY_FORMAT: &[u8; 4] = b"GXS2";
+const ENTRY_FORMAT: &[u8; 4] = b"GXS3";
 
 impl CacheEntry {
     /// Manual binary serialization for CacheEntry
@@ -223,6 +227,10 @@ impl CacheEntry {
         let schema_bytes = self.merged_schema.as_bytes();
         bytes.extend_from_slice(&(schema_bytes.len() as u32).to_le_bytes());
         bytes.extend_from_slice(schema_bytes);
+        bytes.extend_from_slice(&(self.segment_lengths.len() as u32).to_le_bytes());
+        for len in &self.segment_lengths {
+            bytes.extend_from_slice(&(*len as u32).to_le_bytes());
+        }
         bytes.extend(self.metadata.to_bytes());
         bytes
     }
@@ -248,11 +256,17 @@ impl CacheEntry {
         }
         let schema_len = read_len(take(4)?)?;
         let merged_schema = String::from_utf8(take(schema_len)?.to_vec()).ok()?;
+        let count = read_len(take(4)?)?;
+        let mut segment_lengths = Vec::with_capacity(count.min(1024));
+        for _ in 0..count {
+            segment_lengths.push(read_len(take(4)?)?);
+        }
 
         let metadata = CacheMetadata::from_bytes_simple(&rest[offset..])?;
         Some(Self {
             sources,
             merged_schema,
+            segment_lengths,
             metadata,
         })
     }
@@ -490,6 +504,35 @@ fn stable_hash(key: &str) -> u64 {
 }
 
 pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<String> {
+    load_entry(base_dir, source).map(|entry| entry.merged_schema)
+}
+
+/// The merged text of `source` split into its files' segments, as
+/// [`crate::utils::merge_schema_segments`] makes them. `None` for an entry saved
+/// as merged text alone, as for one that is missing or stale.
+pub fn try_load_segments_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<Vec<String>> {
+    let entry = load_entry(base_dir, source)?;
+    let merged = entry.merged_schema;
+    if entry.segment_lengths.is_empty()
+        || entry
+            .segment_lengths
+            .iter()
+            .map(|len| len + 1)
+            .sum::<usize>()
+            != merged.len()
+    {
+        return None;
+    }
+    let mut segments = Vec::with_capacity(entry.segment_lengths.len());
+    let mut start = 0;
+    for len in entry.segment_lengths {
+        segments.push(merged.get(start..start + len)?.to_string());
+        start += len + 1;
+    }
+    Some(segments)
+}
+
+fn load_entry(base_dir: &Path, source: &SchemaSource) -> Option<CacheEntry> {
     let cache_path = get_cache_path(base_dir, source);
     if !cache_path.exists() {
         return None;
@@ -522,7 +565,23 @@ pub fn try_load_from_cache(base_dir: &Path, source: &SchemaSource) -> Option<Str
         return None;
     }
 
-    Some(entry.merged_schema)
+    Some(entry)
+}
+
+/// Saves `source` merged, keeping where each file's segment lies so that
+/// [`try_load_segments_from_cache`] can hand them back.
+pub fn save_segments_to_cache(
+    base_dir: &Path,
+    source: &SchemaSource,
+    segments: &[impl AsRef<str>],
+) -> Result<(), String> {
+    let mut merged = String::with_capacity(segments.iter().map(|s| s.as_ref().len() + 1).sum());
+    for segment in segments {
+        merged.push_str(segment.as_ref());
+        merged.push('\n');
+    }
+    let segment_lengths = segments.iter().map(|s| s.as_ref().len()).collect();
+    save_entry(base_dir, source, merged, segment_lengths)
 }
 
 pub fn save_to_cache(
@@ -530,12 +589,22 @@ pub fn save_to_cache(
     source: &SchemaSource,
     merged_schema: &str,
 ) -> Result<(), String> {
+    save_entry(base_dir, source, merged_schema.to_string(), Vec::new())
+}
+
+fn save_entry(
+    base_dir: &Path,
+    source: &SchemaSource,
+    merged_schema: String,
+    segment_lengths: Vec<usize>,
+) -> Result<(), String> {
     let files = source.files();
     let metadata = CacheMetadata::from_files(base_dir, &files)?;
 
     let entry = CacheEntry {
         sources: files.clone(),
-        merged_schema: merged_schema.to_string(),
+        merged_schema,
+        segment_lengths,
         metadata,
     };
 
@@ -727,6 +796,31 @@ mod tests {
         let f = OpenOptions::new().write(true).open(&path).unwrap();
         f.set_times(std::fs::FileTimes::new().set_modified(when))
             .unwrap();
+    }
+
+    #[test]
+    #[ntest::timeout(2000)]
+    fn segments_come_back_as_saved_and_merged() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("a.graphql"), "type Query { a: Int }").unwrap();
+        fs::write(dir.path().join("b.graphql"), "type Query { b: Int }").unwrap();
+        let source = SchemaSource::Multiple(vec!["a.graphql".into(), "b.graphql".into()]);
+        let segments = ["type Query { a: Int }\n", "extend type Query { b: Int }"];
+
+        save_segments_to_cache(dir.path(), &source, &segments).unwrap();
+        assert_eq!(
+            try_load_segments_from_cache(dir.path(), &source),
+            Some(segments.map(String::from).to_vec())
+        );
+        assert_eq!(
+            try_load_from_cache(dir.path(), &source),
+            Some("type Query { a: Int }\n\nextend type Query { b: Int }\n".to_string())
+        );
+
+        // An entry saved as merged text alone says nothing of its segments.
+        save_to_cache(dir.path(), &source, "type Query { a: Int b: Int }").unwrap();
+        assert_eq!(try_load_segments_from_cache(dir.path(), &source), None);
+        let _ = fs::remove_file(get_cache_path(dir.path(), &source));
     }
 
     #[test]
