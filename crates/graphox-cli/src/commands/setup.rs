@@ -54,10 +54,10 @@ impl<'a> CodegenSetup<'a> {
             })
             .collect();
 
-        // The workspace scan, project-schema validation, and schema_types type-import
-        // precompute are mutually independent and each non-trivial. Run them concurrently,
-        // and — crucially — validate each DISTINCT schema once rather than per project
-        // (many projects share the same large schema).
+        // The workspace scan and schema validation are independent and each
+        // non-trivial, so they run concurrently. Each DISTINCT schema — a project's
+        // or a schema_types entry's — is parsed and validated once, here, and
+        // everything after reuses it: many projects share one large schema.
         let (workspace, (schemas, type_imports)) = rayon::join(
             || {
                 Engine::scan_workspace(
@@ -67,36 +67,53 @@ impl<'a> CodegenSetup<'a> {
                 )
             },
             || {
-                rayon::join(
-                    || super::build_validated_schemas(config),
-                    || -> std::collections::HashMap<String, HashMap<String, String>> {
-                        unique_sources
-                            .par_iter()
-                            .map(|key| {
-                                let mut project_type_imports = HashMap::default();
-                                if let Some(matches) = matches.get(key) {
-                                    for st in matches.iter().rev() {
-                                        if let Some(import_path) = st.import()
-                                            && let Ok(st_schema) = schema::load_schema_with_cache(
+                let schemas = super::validate_schema_sources(
+                    config,
+                    config
+                        .projects()
+                        .iter()
+                        .map(|p| p.schema())
+                        .chain(schema_types.iter().map(|st| st.schema())),
+                );
+                let type_imports: std::collections::HashMap<String, HashMap<String, String>> =
+                    unique_sources
+                        .par_iter()
+                        .map(|key| {
+                            let mut project_type_imports = HashMap::default();
+                            if let Some(matches) = matches.get(key) {
+                                for st in matches.iter().rev() {
+                                    let Some(import_path) = st.import() else {
+                                        continue;
+                                    };
+                                    let mut add = |type_names: &mut dyn Iterator<Item = &str>| {
+                                        for type_name in type_names {
+                                            project_type_imports.insert(
+                                                type_name.to_string(),
+                                                import_path.to_string(),
+                                            );
+                                        }
+                                    };
+                                    match schemas.get(&st.schema().as_key()) {
+                                        Some(Ok(valid)) => {
+                                            add(&mut valid.types.keys().map(|n| n.as_str()))
+                                        }
+                                        // An invalid schema still names its types.
+                                        _ => {
+                                            if let Ok(st_schema) = schema::load_schema_with_cache(
                                                 config.base_dir(),
                                                 st.schema(),
                                                 config.enable_schema_cache(),
-                                            )
-                                        {
-                                            for type_name in st_schema.types.keys() {
-                                                project_type_imports.insert(
-                                                    type_name.to_string(),
-                                                    import_path.to_string(),
-                                                );
+                                            ) {
+                                                add(&mut st_schema.types.keys().map(|n| n.as_str()))
                                             }
                                         }
                                     }
                                 }
-                                (key.clone(), project_type_imports)
-                            })
-                            .collect()
-                    },
-                )
+                            }
+                            (key.clone(), project_type_imports)
+                        })
+                        .collect();
+                (schemas, type_imports)
             },
         );
 
