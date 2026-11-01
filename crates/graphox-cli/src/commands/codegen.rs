@@ -2,9 +2,8 @@ use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use colored::*;
 use graphox_codegen as codegen;
 use graphox_core::DocumentState;
-use graphox_core::config::{CodegenConfig, Config, GlobPattern, SchemaSource};
+use graphox_core::config::{CodegenConfig, Config, GlobPattern};
 use graphox_core::engine::{Engine, FragmentMetadata, ProjectContext};
-use graphox_core::schema;
 use graphox_core::schema_cache;
 use graphox_core::utils;
 use rayon::prelude::*;
@@ -12,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 pub struct CodegenParams<'a> {
     pub base_dir: &'a Path,
-    pub source: &'a SchemaSource,
+    pub schema: &'a apollo_compiler::validation::Valid<apollo_compiler::Schema>,
     pub include: &'a GlobPattern,
     pub project_files: &'a [PathBuf],
     pub output_dir: Option<&'a Path>,
@@ -25,7 +24,6 @@ pub struct CodegenParams<'a> {
     pub workspace_documents: &'a HashMap<PathBuf, DocumentState>,
     pub codegen_config: &'a CodegenConfig,
     pub emit_extensions: graphox_core::config::EmitExtensions,
-    pub use_cache: bool,
     pub type_cache: &'a codegen::SchemaAnalysisCaches,
 }
 
@@ -410,7 +408,7 @@ async fn execute_codegen(
             let res = execute_project_codegen_sync(
                 CodegenParams {
                     base_dir: cfg.base_dir(),
-                    source: project.schema(),
+                    schema: valid_schema,
                     include: project.include(),
                     project_files: &project_files,
                     output_dir: project_output_dir,
@@ -423,7 +421,6 @@ async fn execute_codegen(
                     workspace_documents: &workspace_metadata.documents,
                     codegen_config: &codegen_config,
                     emit_extensions,
-                    use_cache: cfg.enable_schema_cache(),
                     type_cache: &shared_caches,
                 },
                 verbose,
@@ -480,6 +477,16 @@ async fn execute_codegen(
     }
 
     if !selected_schema_types.is_empty() && (clean || cfg.codegen().is_enabled()) {
+        // Setup validated these along with the projects' schemas. A run that
+        // selected no project resolved no setup, so validates them here.
+        let standalone_schemas = if setup.is_some() || clean {
+            HashMap::default()
+        } else {
+            super::validate_schema_sources(&cfg, selected_schema_types.iter().map(|st| st.schema()))
+        };
+        let schemas = setup
+            .as_ref()
+            .map_or(&standalone_schemas, |setup| &setup.schemas);
         let schema_results: Vec<_> = selected_schema_types
             .par_iter()
             .map(|st| {
@@ -506,89 +513,78 @@ async fn execute_codegen(
                     if !clean && verbose {
                         println!("Generating types for schema: {}", st.output().blue());
                     }
-                    let res = execute_schema_codegen_sync(
-                        cfg.base_dir(),
-                        st.schema(),
+                    let valid_schema = match schemas.get(&st.schema().as_key()) {
+                        Some(Ok(valid_schema)) => valid_schema,
+                        Some(Err(e)) => {
+                            eprintln!("{}", e.as_str().red());
+                            return Err(());
+                        }
+                        None => unreachable!("every selected schema_types schema is validated"),
+                    };
+
+                    if !execute_schema_codegen_sync(
+                        valid_schema,
                         &abs_output.to_string_lossy(),
                         cfg.scalars(),
                         verbose,
-                        cfg.enable_schema_cache(),
-                    );
-
-                    if !res {
+                    ) {
                         return Err(());
                     }
+                    let pt_output = st.possible_types();
+                    let tp_output = st.type_policies();
 
-                    if let Ok(schema) = schema::load_schema_with_cache(
-                        cfg.base_dir(),
-                        st.schema(),
-                        cfg.enable_schema_cache(),
-                    ) {
-                        let valid_schema = schema.validate().expect("Schema should be valid");
-                        let pt_output = st.possible_types();
-                        let tp_output = st.type_policies();
+                    let pt_path = pt_output.map(|p| cfg.base_dir().join(p));
+                    let tp_path = tp_output.map(|p| cfg.base_dir().join(p));
 
-                        let pt_path = pt_output.map(|p| cfg.base_dir().join(p));
-                        let tp_path = tp_output.map(|p| cfg.base_dir().join(p));
-
-                        match (&pt_path, &tp_path) {
-                            (Some(pt), Some(tp)) if pt == tp => {
-                                let pt_content = codegen::generate_possible_types(&valid_schema);
-                                let tp_content = codegen::generate_type_policies(&valid_schema);
-                                let combined = format!(
-                                    "{}\n\n{}\n",
-                                    pt_content.trim_end(),
-                                    tp_content.trim_start()
-                                );
+                    match (&pt_path, &tp_path) {
+                        (Some(pt), Some(tp)) if pt == tp => {
+                            let pt_content = codegen::generate_possible_types(valid_schema);
+                            let tp_content = codegen::generate_type_policies(valid_schema);
+                            let combined = format!(
+                                "{}\n\n{}\n",
+                                pt_content.trim_end(),
+                                tp_content.trim_start()
+                            );
+                            let mut should_write = true;
+                            if pt.exists()
+                                && let Ok(existing) = std::fs::read_to_string(pt)
+                                && existing == combined
+                            {
+                                should_write = false;
+                            }
+                            if should_write && let Err(e) = std::fs::write(pt, combined) {
+                                eprintln!("{}: {}", "Failed to write combined output".red(), e);
+                                return Err(());
+                            }
+                        }
+                        _ => {
+                            if let Some(pt) = &pt_path {
+                                let content = codegen::generate_possible_types(valid_schema);
                                 let mut should_write = true;
                                 if pt.exists()
                                     && let Ok(existing) = std::fs::read_to_string(pt)
-                                    && existing == combined
+                                    && existing == content
                                 {
                                     should_write = false;
                                 }
-                                if should_write && let Err(e) = std::fs::write(pt, combined) {
-                                    eprintln!("{}: {}", "Failed to write combined output".red(), e);
+                                if should_write && let Err(e) = std::fs::write(pt, content) {
+                                    eprintln!("{}: {}", "Failed to write possibleTypes".red(), e);
                                     return Err(());
                                 }
                             }
-                            _ => {
-                                if let Some(pt) = &pt_path {
-                                    let content = codegen::generate_possible_types(&valid_schema);
-                                    let mut should_write = true;
-                                    if pt.exists()
-                                        && let Ok(existing) = std::fs::read_to_string(pt)
-                                        && existing == content
-                                    {
-                                        should_write = false;
-                                    }
-                                    if should_write && let Err(e) = std::fs::write(pt, content) {
-                                        eprintln!(
-                                            "{}: {}",
-                                            "Failed to write possibleTypes".red(),
-                                            e
-                                        );
-                                        return Err(());
-                                    }
-                                }
 
-                                if let Some(tp) = &tp_path {
-                                    let content = codegen::generate_type_policies(&valid_schema);
-                                    let mut should_write = true;
-                                    if tp.exists()
-                                        && let Ok(existing) = std::fs::read_to_string(tp)
-                                        && existing == content
-                                    {
-                                        should_write = false;
-                                    }
-                                    if should_write && let Err(e) = std::fs::write(tp, content) {
-                                        eprintln!(
-                                            "{}: {}",
-                                            "Failed to write typePolicies".red(),
-                                            e
-                                        );
-                                        return Err(());
-                                    }
+                            if let Some(tp) = &tp_path {
+                                let content = codegen::generate_type_policies(valid_schema);
+                                let mut should_write = true;
+                                if tp.exists()
+                                    && let Ok(existing) = std::fs::read_to_string(tp)
+                                    && existing == content
+                                {
+                                    should_write = false;
+                                }
+                                if should_write && let Err(e) = std::fs::write(tp, content) {
+                                    eprintln!("{}: {}", "Failed to write typePolicies".red(), e);
+                                    return Err(());
                                 }
                             }
                         }
@@ -927,22 +923,12 @@ fn execute_clean_only(cfg: &Config, verbose: bool) -> bool {
 }
 
 fn execute_schema_codegen_sync(
-    base_dir: &Path,
-    source: &SchemaSource,
+    valid_schema: &apollo_compiler::validation::Valid<apollo_compiler::Schema>,
     output_path: &str,
     scalars: &HashMap<String, String>,
     verbose: bool,
-    use_cache: bool,
 ) -> bool {
-    let valid_schema = match schema::load_schema_with_cache(base_dir, source, use_cache) {
-        Ok(v) => v.validate().expect("Schema should be valid"),
-        Err(e) => {
-            eprintln!("{}", e.to_string().red());
-            return false;
-        }
-    };
-
-    let ts_code = codegen::generate_schema_types(&valid_schema, scalars);
+    let ts_code = codegen::generate_schema_types(valid_schema, scalars);
     let out_path = Path::new(output_path);
 
     if let Some(parent) = out_path.parent() {
@@ -1021,14 +1007,7 @@ fn generate_project_files_sync(
     params: CodegenParams<'_>,
     verbose: bool,
 ) -> Result<ProjectCodegenOutput, ()> {
-    let valid_schema =
-        match schema::load_schema_with_cache(params.base_dir, params.source, params.use_cache) {
-            Ok(v) => v.validate().expect("Schema should be valid"),
-            Err(e) => {
-                eprintln!("{}", e.to_string().red());
-                return Err(());
-            }
-        };
+    let valid_schema = params.schema;
 
     let results: Vec<_> = params
         .project_files
@@ -1049,7 +1028,7 @@ fn generate_project_files_sync(
             );
 
             let ctx = codegen::CodegenContext::new(
-                &valid_schema,
+                valid_schema,
                 &params.project_context.fragment_to_path,
                 &params.project_context.fragment_output_paths,
                 &params.project_context.fragment_to_import,
@@ -1174,7 +1153,7 @@ fn generate_project_files_sync(
             if let Some(_out_dir) = params.output_dir {
                 let permissions_path = out_dir_path.join("permissions.ts");
                 let content = codegen::emit_permission_data_content(
-                    &valid_schema,
+                    valid_schema,
                     params.scalars,
                     params.schema_import,
                 );

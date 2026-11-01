@@ -91,13 +91,21 @@ pub(crate) type ValidSchema = Arc<apollo_compiler::validation::Valid<apollo_comp
 pub(crate) fn build_validated_schemas(
     config: &Config,
 ) -> ahash::AHashMap<String, Result<ValidSchema, String>> {
+    validate_schema_sources(config, config.projects().iter().map(|p| p.schema()))
+}
+
+/// Load + validate each distinct source in `sources` once (in parallel), keyed
+/// by schema key.
+pub(crate) fn validate_schema_sources<'a>(
+    config: &Config,
+    sources: impl IntoIterator<Item = &'a SchemaSource>,
+) -> ahash::AHashMap<String, Result<ValidSchema, String>> {
     let mut seen = ahash::AHashSet::default();
-    let unique: Vec<(String, &SchemaSource)> = config
-        .projects()
-        .iter()
-        .filter_map(|p| {
-            let key = p.schema().as_key();
-            seen.insert(key.clone()).then_some((key, p.schema()))
+    let unique: Vec<(String, &SchemaSource)> = sources
+        .into_iter()
+        .filter_map(|source| {
+            let key = source.as_key();
+            seen.insert(key.clone()).then_some((key, source))
         })
         .collect();
 
