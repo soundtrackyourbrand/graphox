@@ -109,20 +109,19 @@ pub(crate) fn validate_schema_sources<'a>(
         })
         .collect();
 
+    let sources: Vec<&SchemaSource> = unique.iter().map(|(_, source)| *source).collect();
+    let loaded = schema::load_schemas(config.base_dir(), &sources, config.enable_schema_cache());
     let pairs: Vec<(String, Result<ValidSchema, String>)> = unique
         .into_par_iter()
-        .map(|(key, source)| {
-            let result = schema::load_schema_with_cache(
-                config.base_dir(),
-                source,
-                config.enable_schema_cache(),
-            )
-            .map_err(|e| format!("Failed to load schema {}: {}", source.as_key(), e))
-            .and_then(|s| {
-                s.validate()
-                    .map(Arc::new)
-                    .map_err(|e| format!("Invalid schema {}: {}", source.as_key(), e))
-            });
+        .zip(loaded)
+        .map(|((key, source), loaded)| {
+            let result = loaded
+                .map_err(|e| format!("Failed to load schema {}: {}", source.as_key(), e))
+                .and_then(|s| {
+                    s.validate()
+                        .map(Arc::new)
+                        .map_err(|e| format!("Invalid schema {}: {}", source.as_key(), e))
+                });
             (key, result)
         })
         .collect();
