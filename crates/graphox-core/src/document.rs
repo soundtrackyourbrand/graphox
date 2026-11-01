@@ -937,11 +937,29 @@ impl DocumentState {
         if self.language == DocumentLanguage::GraphQL {
             return true;
         }
-        self.rope.chunks().any(|chunk| {
-            let bytes = chunk.as_bytes();
+        // The rope splits its text into chunks anywhere, so a marker may
+        // straddle two of them: each seam is searched as well as each chunk.
+        const SEAM: usize = b"graphql".len() - 1;
+        let contains_marker = |bytes: &[u8]| {
             bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
                 || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"))
-        })
+        };
+        // The last `SEAM` bytes before the current chunk.
+        let mut tail: Vec<u8> = Vec::with_capacity(2 * SEAM);
+        for chunk in self.rope.chunks() {
+            let bytes = chunk.as_bytes();
+            tail.extend_from_slice(&bytes[..bytes.len().min(SEAM)]);
+            if contains_marker(&tail) || contains_marker(bytes) {
+                return true;
+            }
+            if bytes.len() >= SEAM {
+                tail.clear();
+                tail.extend_from_slice(&bytes[bytes.len() - SEAM..]);
+            } else {
+                tail.drain(..tail.len().saturating_sub(SEAM));
+            }
+        }
+        false
     }
 
     pub fn get_node_text(&self, node: Node, offset: usize) -> String {
@@ -2452,6 +2470,28 @@ mod tests {
     fn create_doc(src: &str, encoding: PositionEncodingKind) -> DocumentState {
         let uri = "file:///tmp/test.tsx".parse::<Uri>().unwrap();
         DocumentState::new_from_thread_local(uri, src, encoding)
+    }
+
+    #[test]
+    #[ntest::timeout(10000)]
+    fn test_graphql_found_wherever_the_rope_splits_its_marker() {
+        // The rope stores text in chunks of about a kilobyte. A file whose only
+        // marker straddles two of them still holds GraphQL.
+        for embedding in ["graphql(`query A { me }`)", "gql`query A { me }`"] {
+            for before in 490..530 {
+                let src = format!(
+                    "/*{}*/\nconst q = {embedding};\n/*{}*/\n",
+                    "x".repeat(before),
+                    "y".repeat(500)
+                );
+                let doc = create_doc(&src, PositionEncodingKind::UTF8);
+                assert_eq!(
+                    doc.graphql_trees.len(),
+                    1,
+                    "{embedding} after {before} bytes"
+                );
+            }
+        }
     }
 
     #[test]

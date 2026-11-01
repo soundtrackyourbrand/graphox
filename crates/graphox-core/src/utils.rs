@@ -489,13 +489,142 @@ pub fn is_relevant_file(path: &Path) -> bool {
     })()
 }
 
-/// Whether host-language source could embed GraphQL. Every way of embedding
-/// it (`gql` and `graphql` tags, `/* GraphQL */` comments) contains one of the
-/// two markers, so a file without either needs no parse.
+/// Whether host-language source could embed GraphQL, decided without parsing it.
+///
+/// Extraction (`TS_GQL_QUERY`) finds two forms: a `gql` or `graphql` call or tag
+/// whose arguments hold a template literal, and a template literal preceded only
+/// by comments, one of which mentions GraphQL. Either way a marker leads to a
+/// backtick, so a file whose every marker leads elsewhere needs no parse. Most of
+/// those import from a generated `graphql` directory: `from '../graphql'`.
+///
+/// It must never answer `false` for a file extraction would find GraphQL in,
+/// since such a file would then go ungenerated. Wherever the source does not
+/// settle the question, it answers `true`.
 pub fn may_contain_graphql(content: &str) -> bool {
     let bytes = content.as_bytes();
-    bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
-        || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"))
+    // Where the last search for a `*/` found one, or `None` where it found
+    // none. Markers come in order, so a search is repeated only past the last
+    // one found, and the file is read for them once however many markers it has.
+    let mut last_close: Option<Option<usize>> = None;
+    (0..bytes.len()).any(|at| {
+        if !matches!(bytes[at], b'g' | b'G') {
+            return false;
+        }
+        let rest = &bytes[at..];
+        if starts_with_ignore_ascii_case(rest, b"graphql") {
+            let end = at + b"graphql".len();
+            if starts_identifier(bytes, at) && tag_reaches_template(bytes, end) {
+                return true;
+            }
+            let close = match last_close {
+                Some(close) if close.is_none_or(|close| close >= end) => close,
+                _ => {
+                    let close = bytes[end..]
+                        .windows(2)
+                        .position(|w| w == b"*/")
+                        .map(|i| end + i);
+                    last_close = Some(close);
+                    close
+                }
+            };
+            comment_reaches_template(bytes, end, close.map(|close| close + 2))
+        } else if starts_with_ignore_ascii_case(rest, b"gql") {
+            starts_identifier(bytes, at) && tag_reaches_template(bytes, at + b"gql".len())
+        } else {
+            false
+        }
+    })
+}
+
+fn starts_with_ignore_ascii_case(bytes: &[u8], prefix: &[u8]) -> bool {
+    bytes.len() >= prefix.len() && bytes[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
+fn starts_identifier(bytes: &[u8], at: usize) -> bool {
+    at == 0 || !matches!(bytes[at - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'$')
+}
+
+/// From just after a `gql` or `graphql` identifier: whether it is called or tags
+/// a template. Any call counts, since the template may be any of its arguments.
+fn tag_reaches_template(bytes: &[u8], from: usize) -> bool {
+    let mut at = skip_trivia(bytes, from);
+    // Type arguments and an optional call's `?.` come in either order:
+    // `gql<T>?.(…)`, `gql?.<T>(…)`.
+    loop {
+        if bytes.get(at) == Some(&b'<') {
+            match skip_type_arguments(bytes, at) {
+                Some(end) => at = skip_trivia(bytes, end),
+                None => return true,
+            }
+        } else if bytes[at..].starts_with(b"?.") {
+            at = skip_trivia(bytes, at + 2);
+        } else {
+            break;
+        }
+    }
+    matches!(bytes.get(at), Some(b'`' | b'('))
+}
+
+/// From just after a GraphQL marker that may sit in a comment: whether, once
+/// that comment ends, only whitespace and comments come before a template. The
+/// comment's kind is unknown, so both a line comment's end and a block
+/// comment's are tried: `block_end` is just past the first `*/` after `from`.
+fn comment_reaches_template(bytes: &[u8], from: usize, block_end: Option<usize>) -> bool {
+    let line_end = bytes[from..]
+        .iter()
+        .position(|&b| b == b'\n')
+        .map(|i| from + i + 1);
+    [line_end, block_end]
+        .into_iter()
+        .flatten()
+        .any(|end| bytes.get(skip_trivia(bytes, end)) == Some(&b'`'))
+}
+
+/// The first position from `at` that is neither whitespace nor in a comment.
+fn skip_trivia(bytes: &[u8], mut at: usize) -> usize {
+    loop {
+        while bytes.get(at).is_some_and(|b| b.is_ascii_whitespace()) {
+            at += 1;
+        }
+        let rest = &bytes[at.min(bytes.len())..];
+        if rest.starts_with(b"//") {
+            at = match rest.iter().position(|&b| b == b'\n') {
+                Some(i) => at + i + 1,
+                None => return bytes.len(),
+            };
+        } else if rest.starts_with(b"/*") {
+            at = match rest[2..].windows(2).position(|w| w == b"*/") {
+                Some(i) => at + 2 + i + 2,
+                None => return bytes.len(),
+            };
+        } else {
+            return at;
+        }
+    }
+}
+
+/// The end of the type arguments opening at `at`, or `None` where they cannot
+/// be told apart from a comparison or hold a string, whose `<` and `>` would
+/// count, which the caller takes as a possible tag.
+fn skip_type_arguments(bytes: &[u8], at: usize) -> Option<usize> {
+    const MAX_LEN: usize = 4096;
+    let mut depth = 0usize;
+    for (i, &b) in bytes[at..].iter().enumerate().take(MAX_LEN) {
+        match b {
+            b'<' => depth += 1,
+            // The arrow of a function type closes nothing.
+            b'>' if i > 0 && bytes[at + i - 1] == b'=' => {}
+            b'>' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at + i + 1);
+                }
+            }
+            b';' | b'`' | b'"' | b'\'' => return None,
+            _ => {}
+        }
+    }
+    None
 }
 
 pub fn has_generated_header(content: &str) -> bool {
@@ -1517,238 +1646,264 @@ pub fn get_output_path(
 }
 
 pub fn merge_schema_texts(texts: &[String]) -> String {
-    let total_len: usize = texts.iter().map(|s| s.len() + 1).sum();
+    let segments = merge_schema_segments(texts);
+    let total_len: usize = segments.iter().map(|s| s.len() + 1).sum();
     let mut merged = String::with_capacity(total_len);
+    for segment in segments {
+        merged.push_str(&segment);
+        merged.push('\n');
+    }
+    merged
+}
+
+/// What [`merge_schema_texts`] makes of each file, in order: the file's text
+/// with what an earlier file already defined turned into an extension or
+/// dropped. A segment depends only on the files up to its own, so files that
+/// several schemas begin with give each of them the same segments.
+pub fn merge_schema_segments(texts: &[String]) -> Vec<String> {
+    let outlines: Vec<_> = texts
+        .iter()
+        .map(|text| SchemaFileOutline::new(text))
+        .collect();
+    merge_outlined_schema_segments(
+        &texts
+            .iter()
+            .map(String::as_str)
+            .zip(&outlines)
+            .collect::<Vec<_>>(),
+    )
+}
+
+/// What the schema merge needs to know of one file, found by parsing it. It
+/// does not depend on the files merged before it, so a file several schemas
+/// include is parsed once however many of them are merged.
+pub struct SchemaFileOutline {
+    /// `None` when the file could not be parsed, which the merge passes through
+    /// unchanged.
+    entries: Option<Vec<OutlineEntry>>,
+}
+
+struct OutlineEntry {
+    start: usize,
+    end: usize,
+    kind: OutlineKind,
+}
+
+enum OutlineKind {
+    Schema,
+    RootOperation {
+        operation: Option<std::ops::Range<usize>>,
+    },
+    Definition {
+        name: std::ops::Range<usize>,
+        is_extension: bool,
+        /// A scalar without directives, which a repeat adds nothing to.
+        is_plain_scalar: bool,
+        /// Where `extend ` goes: past the description and comments.
+        keyword_start: usize,
+    },
+}
+
+impl SchemaFileOutline {
+    pub fn new(text: &str) -> Self {
+        let mut parser = tree_sitter::Parser::new();
+        let language: tree_sitter::Language = tree_sitter_graphql::LANGUAGE.into();
+        if let Err(e) = parser.set_language(&language) {
+            eprintln!(
+                "{}: Failed to set GraphQL language: {}",
+                "ERROR".red(),
+                e.to_string().red()
+            );
+            return Self { entries: None };
+        }
+        let Some(tree) = parser.parse(text, None) else {
+            return Self { entries: None };
+        };
+
+        let query = crate::queries::GQL_MERGE_QUERY_CACHE.get_or_init(|| {
+            tree_sitter::Query::new(&language, crate::queries::GQL_MERGE_QUERY).unwrap()
+        });
+        let name_idx = query.capture_index_for_name("name").unwrap();
+        let type_def_idx = query.capture_index_for_name("type_def").unwrap();
+        let schema_def_idx = query.capture_index_for_name("schema_def").unwrap();
+        let operation_idx = query.capture_index_for_name("operation").unwrap();
+        let root_op_idx = query.capture_index_for_name("root_op").unwrap();
+        let mut cursor = tree_sitter::QueryCursor::new();
+
+        let mut entries = Vec::new();
+        let mut matches_iter = cursor.matches(query, tree.root_node(), text.as_bytes());
+        while let Some(m) = matches_iter.next() {
+            let mut name_node = None;
+            let mut container_node = None;
+            let mut is_schema_def = false;
+            let mut is_root_op = false;
+            let mut operation_node = None;
+
+            for cap in m.captures {
+                if cap.index == name_idx {
+                    name_node = Some(cap.node);
+                } else if cap.index == type_def_idx {
+                    container_node = Some(cap.node);
+                } else if cap.index == schema_def_idx {
+                    is_schema_def = true;
+                } else if cap.index == root_op_idx {
+                    is_root_op = true;
+                } else if cap.index == operation_idx {
+                    operation_node = Some(cap.node);
+                }
+            }
+
+            let Some(container) = container_node else {
+                continue;
+            };
+            let kind = if is_schema_def {
+                OutlineKind::Schema
+            } else if is_root_op {
+                OutlineKind::RootOperation {
+                    operation: operation_node.map(|n| n.byte_range()),
+                }
+            } else if let Some(name_node) = name_node {
+                let mut cursor = container.walk();
+                let has_directives = container
+                    .children(&mut cursor)
+                    .any(|child| child.kind() == "directives");
+                let mut cursor = container.walk();
+                let keyword_start = container
+                    .children(&mut cursor)
+                    .find(|child| !matches!(child.kind(), "description" | "comment"))
+                    .map_or(container.start_byte(), |child| child.start_byte());
+                OutlineKind::Definition {
+                    name: name_node.byte_range(),
+                    is_extension: container.kind() == "type_extension",
+                    is_plain_scalar: container.kind() == "scalar_type_definition"
+                        && !has_directives,
+                    keyword_start,
+                }
+            } else {
+                continue;
+            };
+            entries.push(OutlineEntry {
+                start: container.start_byte(),
+                end: container.end_byte(),
+                kind,
+            });
+        }
+        Self {
+            entries: Some(entries),
+        }
+    }
+}
+
+/// [`merge_schema_segments`] over files already outlined.
+pub fn merge_outlined_schema_segments(files: &[(&str, &SchemaFileOutline)]) -> Vec<String> {
+    let mut segments = Vec::with_capacity(files.len());
     let mut seen_base = ahash::AHashSet::default();
     let mut seen_schema = false;
     let mut seen_root_op_names = ahash::AHashSet::default();
 
-    let mut parser = tree_sitter::Parser::new();
-    let language: tree_sitter::Language = tree_sitter_graphql::LANGUAGE.into();
-    if let Err(e) = parser.set_language(&language) {
-        eprintln!(
-            "{}: Failed to set GraphQL language: {}",
-            "ERROR".red(),
-            e.to_string().red()
-        );
-        for text in texts {
-            merged.push_str(text);
-            merged.push('\n');
-        }
-        return merged;
-    }
-
-    let query = crate::queries::GQL_MERGE_QUERY_CACHE.get_or_init(|| {
-        tree_sitter::Query::new(&language, crate::queries::GQL_MERGE_QUERY).unwrap()
-    });
-    let name_idx = query.capture_index_for_name("name").unwrap();
-    let type_def_idx = query.capture_index_for_name("type_def").unwrap();
-    let schema_def_idx = query.capture_index_for_name("schema_def").unwrap();
-    let operation_idx = query.capture_index_for_name("operation").unwrap();
-    let named_type_idx = query.capture_index_for_name("named_type").unwrap();
-    let root_op_idx = query.capture_index_for_name("root_op").unwrap();
-    let mut cursor = tree_sitter::QueryCursor::new();
-
-    for text in texts {
-        let tree = if let Some(t) = parser.parse(text, None) {
-            t
-        } else {
-            merged.push_str(text);
-            merged.push('\n');
+    for &(text, outline) in files {
+        let Some(entries) = &outline.entries else {
+            segments.push(text.to_string());
             continue;
         };
-        let root = tree.root_node();
-
-        // One pass to collect all info
-        let mut collected_matches = Vec::new();
-        {
-            let mut matches_iter = cursor.matches(query, root, text.as_bytes());
-            while let Some(m) = matches_iter.next() {
-                let mut name_node = None;
-                let mut container_node = None;
-                let mut is_schema_def = false;
-                let mut is_root_op = false;
-                let mut operation_node = None;
-                let mut named_type_node = None;
-
-                for cap in m.captures {
-                    if cap.index == name_idx {
-                        name_node = Some(cap.node);
-                    } else if cap.index == type_def_idx {
-                        container_node = Some(cap.node);
-                    } else if cap.index == schema_def_idx {
-                        is_schema_def = true;
-                    } else if cap.index == root_op_idx {
-                        is_root_op = true;
-                    } else if cap.index == operation_idx {
-                        operation_node = Some(cap.node);
-                    } else if cap.index == named_type_idx {
-                        named_type_node = Some(cap.node);
-                    }
-                }
-
-                if let Some(container) = container_node {
-                    collected_matches.push((
-                        container,
-                        is_schema_def,
-                        is_root_op,
-                        name_node,
-                        operation_node,
-                        named_type_node,
-                    ));
-                }
+        let operation_name = |entry: &OutlineEntry| match &entry.kind {
+            OutlineKind::RootOperation { operation } => {
+                operation.clone().map(|range| text[range].to_string())
             }
-        }
+            _ => None,
+        };
 
         let mut modifications = Vec::new();
-        let mut schema_block_indices = Vec::new();
 
-        // Map root ops to their containing schema blocks
-        for (idx, (container, is_schema, _, _, _, _)) in collected_matches.iter().enumerate() {
-            if *is_schema {
-                schema_block_indices.push((
-                    idx,
-                    container.start_byte(),
-                    container.end_byte(),
-                    Vec::new(),
-                ));
-            }
-        }
-
-        for (idx, (container, _, is_root_op, _, _, _)) in collected_matches.iter().enumerate() {
-            if *is_root_op {
-                for block in schema_block_indices.iter_mut() {
-                    if container.start_byte() >= block.1 && container.end_byte() <= block.2 {
-                        block.3.push(idx);
-                        break;
-                    }
-                }
+        // Each schema block, with the root operations inside it.
+        let mut schema_blocks: Vec<(usize, Vec<usize>)> = entries
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| matches!(entry.kind, OutlineKind::Schema))
+            .map(|(idx, _)| (idx, Vec::new()))
+            .collect();
+        for (idx, entry) in entries.iter().enumerate() {
+            if matches!(entry.kind, OutlineKind::RootOperation { .. })
+                && let Some((_, ops)) = schema_blocks.iter_mut().find(|(block, _)| {
+                    entry.start >= entries[*block].start && entry.end <= entries[*block].end
+                })
+            {
+                ops.push(idx);
             }
         }
 
         let mut root_ops_to_remove = ahash::AHashSet::default();
-        let mut handled_schema_blocks = ahash::AHashSet::default();
 
-        for (m_idx, (container, is_schema, is_root_op, name_node, _op_node, _ty_node)) in
-            collected_matches.iter().enumerate()
-        {
-            if *is_schema {
-                if handled_schema_blocks.contains(&m_idx) {
-                    continue;
-                }
-
-                let block = schema_block_indices.iter().find(|b| b.0 == m_idx).unwrap();
-                let mut unique_ops_in_block = Vec::new();
-                for &r_idx in &block.3 {
-                    let (_, _, _, _, o_n, _t_n) = &collected_matches[r_idx];
-                    if let Some(o_n) = o_n {
-                        let op = text[o_n.start_byte()..o_n.end_byte()].to_string();
-                        if !seen_root_op_names.contains(&op) {
-                            unique_ops_in_block.push(r_idx);
-                        } else {
-                            root_ops_to_remove.insert(r_idx);
-                        }
-                    }
-                }
-
-                if unique_ops_in_block.is_empty() && !block.3.is_empty() {
-                    // Entire schema block is redundant
-                    modifications.push((
-                        container.start_byte(),
-                        container.end_byte(),
-                        "".to_string(),
-                    ));
-                } else if seen_schema {
-                    // Convert to extend schema
-                    modifications.push((
-                        container.start_byte(),
-                        container.start_byte() + 6,
-                        "extend schema".to_string(),
-                    ));
-                    for &r_idx in &unique_ops_in_block {
-                        let (_, _, _, _, o_n, _t_n) = &collected_matches[r_idx];
-                        let op =
-                            text[o_n.unwrap().start_byte()..o_n.unwrap().end_byte()].to_string();
-                        seen_root_op_names.insert(op);
-                    }
-                } else {
-                    seen_schema = true;
-                    for &r_idx in &unique_ops_in_block {
-                        let (_, _, _, _, o_n, _t_n) = &collected_matches[r_idx];
-                        let op =
-                            text[o_n.unwrap().start_byte()..o_n.unwrap().end_byte()].to_string();
-                        seen_root_op_names.insert(op);
-                    }
-                }
-                handled_schema_blocks.insert(m_idx);
-            } else if *is_root_op {
-                if root_ops_to_remove.contains(&m_idx) {
-                    modifications.push((
-                        container.start_byte(),
-                        container.end_byte(),
-                        "".to_string(),
-                    ));
-                }
-            } else if let Some(name_node) = name_node {
-                let name = &text[name_node.start_byte()..name_node.end_byte()];
-                let is_extension = container.kind() == "type_extension";
-
-                if !is_extension {
-                    if seen_base.contains(name) {
-                        let is_scalar = container.kind() == "scalar_type_definition";
-                        let mut has_directives = false;
-                        let mut cursor = container.walk();
-                        for child in container.children(&mut cursor) {
-                            if child.kind() == "directives" {
-                                has_directives = true;
-                                break;
+        for (m_idx, entry) in entries.iter().enumerate() {
+            match &entry.kind {
+                OutlineKind::Schema => {
+                    let (_, block_ops) = schema_blocks.iter().find(|(b, _)| *b == m_idx).unwrap();
+                    let mut unique_ops_in_block = Vec::new();
+                    for &r_idx in block_ops {
+                        if let Some(op) = operation_name(&entries[r_idx]) {
+                            if !seen_root_op_names.contains(&op) {
+                                unique_ops_in_block.push(op);
+                            } else {
+                                root_ops_to_remove.insert(r_idx);
                             }
                         }
+                    }
 
-                        if is_scalar && !has_directives {
-                            modifications.push((
-                                container.start_byte(),
-                                container.end_byte(),
-                                "".to_string(),
-                            ));
-                        } else {
-                            let mut insert_pos = container.start_byte();
-                            let mut cursor = container.walk();
-                            for child in container.children(&mut cursor) {
-                                let kind = child.kind();
-                                if kind != "description" && kind != "comment" {
-                                    insert_pos = child.start_byte();
-                                    break;
-                                }
-                            }
-                            modifications.push((
-                                container.start_byte(),
-                                insert_pos,
-                                "extend ".to_string(),
-                            ));
-                        }
+                    if unique_ops_in_block.is_empty() && !block_ops.is_empty() {
+                        // Entire schema block is redundant
+                        modifications.push((entry.start, entry.end, ""));
                     } else {
+                        if seen_schema {
+                            // Convert to extend schema
+                            modifications.push((entry.start, entry.start + 6, "extend schema"));
+                        } else {
+                            seen_schema = true;
+                        }
+                        seen_root_op_names.extend(unique_ops_in_block);
+                    }
+                }
+                OutlineKind::RootOperation { .. } => {
+                    if root_ops_to_remove.contains(&m_idx) {
+                        modifications.push((entry.start, entry.end, ""));
+                    }
+                }
+                OutlineKind::Definition {
+                    name,
+                    is_extension,
+                    is_plain_scalar,
+                    keyword_start,
+                } => {
+                    let name = &text[name.clone()];
+                    if *is_extension {
+                        continue;
+                    }
+                    if !seen_base.contains(name) {
                         seen_base.insert(name.to_string());
+                    } else if *is_plain_scalar {
+                        modifications.push((entry.start, entry.end, ""));
+                    } else {
+                        modifications.push((entry.start, *keyword_start, "extend "));
                     }
                 }
             }
         }
 
         modifications.sort_by_key(|m| m.0);
+        let mut segment = String::with_capacity(text.len());
         let mut current_pos = 0;
         for (start, end, replacement) in modifications {
             if start < current_pos {
                 continue;
             }
-            merged.push_str(&text[current_pos..start]);
-            merged.push_str(&replacement);
+            segment.push_str(&text[current_pos..start]);
+            segment.push_str(replacement);
             current_pos = end;
         }
-        merged.push_str(&text[current_pos..]);
-        merged.push('\n');
+        segment.push_str(&text[current_pos..]);
+        segments.push(segment);
     }
 
-    merged
+    segments
 }
 
 /// Simple interpolation masker for template strings.
@@ -1940,6 +2095,61 @@ mod tests {
             "// filler\n".repeat(GENERATED_HEADER_MAX_LINES)
         );
         assert!(!has_generated_header(&deep));
+    }
+
+    #[test]
+    fn test_may_contain_graphql_finds_every_embedding() {
+        for source in [
+            "const q = gql`query A { me }`;",
+            "const q = gql(`query A { me }`);",
+            "const q = graphql(schema, `query A { me }`);",
+            "const q = gql\n  `query A { me }`;",
+            "const q = gql /* note */ `query A { me }`;",
+            "const q = gql<Result, Vars>`query A { me }`;",
+            "const q = gql<(v: Vars) => Result>(`query A { me }`);",
+            "const q = gql?.(`query A { me }`);",
+            "const q = gql?.<Result>(`query A { me }`);",
+            "const q = gql<Result>?.(`query A { me }`);",
+            "const q = gql<\"a>b\">(`query A { me }`);",
+            "const q = gql<'a>b'>`query A { me }`;",
+            "const q = /* GraphQL */ `query A { me }`;",
+            "const q = /* graphql: the viewer */ /* more */ `query A { me }`;",
+            "foo(\n  // GraphQL\n  `query A { me }`,\n);",
+            "foo(\n  /**\n   * GraphQL, spanning lines\n   */\n  `query A { me }`,\n);",
+            // Type arguments that cannot be told from a comparison stay candidates.
+            "const q = gql < limit;",
+        ] {
+            assert!(may_contain_graphql(source), "{source}");
+        }
+    }
+
+    #[test]
+    fn test_may_contain_graphql_finds_a_comment_after_many_markers() {
+        // Each marker searches for the next `*/`; the last one must still
+        // find the one closing its own comment.
+        let imports = "import { A } from '../graphql';\n".repeat(500);
+        assert!(!may_contain_graphql(&imports));
+        assert!(may_contain_graphql(&format!(
+            "{imports}/* x */\nconst q = /* GraphQL */ `query A {{ me }}`;"
+        )));
+        assert!(!may_contain_graphql(&format!(
+            "{imports}/* GraphQL */\nconst q = 1;\nconst r = `x`;"
+        )));
+    }
+
+    #[test]
+    fn test_may_contain_graphql_skips_markers_that_lead_nowhere() {
+        for source in [
+            "export const x = 1;",
+            "import { useViewerQuery } from '../graphql';",
+            "import { MeDocument } from './graphql.generated';",
+            "import { gql } from '@apollo/client';",
+            "const client = useGqlClient(`x`);",
+            "// GraphQL types come from ../graphql\nexport const x = `y`;",
+            "const label = 'graphql';\nconst y = `z`;",
+        ] {
+            assert!(!may_contain_graphql(source), "{source}");
+        }
     }
 
     #[test]

@@ -91,30 +91,37 @@ pub(crate) type ValidSchema = Arc<apollo_compiler::validation::Valid<apollo_comp
 pub(crate) fn build_validated_schemas(
     config: &Config,
 ) -> ahash::AHashMap<String, Result<ValidSchema, String>> {
+    validate_schema_sources(config, config.projects().iter().map(|p| p.schema()))
+}
+
+/// Load + validate each distinct source in `sources` once (in parallel), keyed
+/// by schema key.
+pub(crate) fn validate_schema_sources<'a>(
+    config: &Config,
+    sources: impl IntoIterator<Item = &'a SchemaSource>,
+) -> ahash::AHashMap<String, Result<ValidSchema, String>> {
     let mut seen = ahash::AHashSet::default();
-    let unique: Vec<(String, &SchemaSource)> = config
-        .projects()
-        .iter()
-        .filter_map(|p| {
-            let key = p.schema().as_key();
-            seen.insert(key.clone()).then_some((key, p.schema()))
+    let unique: Vec<(String, &SchemaSource)> = sources
+        .into_iter()
+        .filter_map(|source| {
+            let key = source.as_key();
+            seen.insert(key.clone()).then_some((key, source))
         })
         .collect();
 
+    let sources: Vec<&SchemaSource> = unique.iter().map(|(_, source)| *source).collect();
+    let loaded = schema::load_schemas(config.base_dir(), &sources, config.enable_schema_cache());
     let pairs: Vec<(String, Result<ValidSchema, String>)> = unique
         .into_par_iter()
-        .map(|(key, source)| {
-            let result = schema::load_schema_with_cache(
-                config.base_dir(),
-                source,
-                config.enable_schema_cache(),
-            )
-            .map_err(|e| format!("Failed to load schema {}: {}", source.as_key(), e))
-            .and_then(|s| {
-                s.validate()
-                    .map(Arc::new)
-                    .map_err(|e| format!("Invalid schema {}: {}", source.as_key(), e))
-            });
+        .zip(loaded)
+        .map(|((key, source), loaded)| {
+            let result = loaded
+                .map_err(|e| format!("Failed to load schema {}: {}", source.as_key(), e))
+                .and_then(|s| {
+                    s.validate()
+                        .map(Arc::new)
+                        .map_err(|e| format!("Invalid schema {}: {}", source.as_key(), e))
+                });
             (key, result)
         })
         .collect();
