@@ -489,13 +489,121 @@ pub fn is_relevant_file(path: &Path) -> bool {
     })()
 }
 
-/// Whether host-language source could embed GraphQL. Every way of embedding
-/// it (`gql` and `graphql` tags, `/* GraphQL */` comments) contains one of the
-/// two markers, so a file without either needs no parse.
+/// Whether host-language source could embed GraphQL, decided without parsing it.
+///
+/// Extraction (`TS_GQL_QUERY`) finds two forms: a `gql` or `graphql` call or tag
+/// whose arguments hold a template literal, and a template literal preceded only
+/// by comments, one of which mentions GraphQL. Either way a marker leads to a
+/// backtick, so a file whose every marker leads elsewhere needs no parse. Most of
+/// those import from a generated `graphql` directory: `from '../graphql'`.
+///
+/// It must never answer `false` for a file extraction would find GraphQL in,
+/// since such a file would then go ungenerated. Wherever the source does not
+/// settle the question, it answers `true`.
 pub fn may_contain_graphql(content: &str) -> bool {
     let bytes = content.as_bytes();
-    bytes.windows(3).any(|w| w.eq_ignore_ascii_case(b"gql"))
-        || bytes.windows(7).any(|w| w.eq_ignore_ascii_case(b"graphql"))
+    (0..bytes.len()).any(|at| {
+        if !matches!(bytes[at], b'g' | b'G') {
+            return false;
+        }
+        let rest = &bytes[at..];
+        if starts_with_ignore_ascii_case(rest, b"graphql") {
+            let end = at + b"graphql".len();
+            (starts_identifier(bytes, at) && tag_reaches_template(bytes, end))
+                || comment_reaches_template(bytes, end)
+        } else if starts_with_ignore_ascii_case(rest, b"gql") {
+            starts_identifier(bytes, at) && tag_reaches_template(bytes, at + b"gql".len())
+        } else {
+            false
+        }
+    })
+}
+
+fn starts_with_ignore_ascii_case(bytes: &[u8], prefix: &[u8]) -> bool {
+    bytes.len() >= prefix.len() && bytes[..prefix.len()].eq_ignore_ascii_case(prefix)
+}
+
+fn starts_identifier(bytes: &[u8], at: usize) -> bool {
+    at == 0 || !matches!(bytes[at - 1], b'a'..=b'z' | b'A'..=b'Z' | b'0'..=b'9' | b'_' | b'$')
+}
+
+/// From just after a `gql` or `graphql` identifier: whether it is called or tags
+/// a template. Any call counts, since the template may be any of its arguments.
+fn tag_reaches_template(bytes: &[u8], from: usize) -> bool {
+    let mut at = skip_trivia(bytes, from);
+    if bytes.get(at) == Some(&b'<') {
+        match skip_type_arguments(bytes, at) {
+            Some(end) => at = skip_trivia(bytes, end),
+            None => return true,
+        }
+    }
+    if bytes[at..].starts_with(b"?.") {
+        at = skip_trivia(bytes, at + 2);
+    }
+    matches!(bytes.get(at), Some(b'`' | b'('))
+}
+
+/// From just after a GraphQL marker that may sit in a comment: whether, once
+/// that comment ends, only whitespace and comments come before a template. The
+/// comment's kind is unknown, so both a line comment's end and a block
+/// comment's are tried.
+fn comment_reaches_template(bytes: &[u8], from: usize) -> bool {
+    let rest = &bytes[from..];
+    let line_end = rest.iter().position(|&b| b == b'\n').map(|i| from + i + 1);
+    let block_end = rest
+        .windows(2)
+        .position(|w| w == b"*/")
+        .map(|i| from + i + 2);
+    [line_end, block_end]
+        .into_iter()
+        .flatten()
+        .any(|end| bytes.get(skip_trivia(bytes, end)) == Some(&b'`'))
+}
+
+/// The first position from `at` that is neither whitespace nor in a comment.
+fn skip_trivia(bytes: &[u8], mut at: usize) -> usize {
+    loop {
+        while bytes.get(at).is_some_and(|b| b.is_ascii_whitespace()) {
+            at += 1;
+        }
+        let rest = &bytes[at.min(bytes.len())..];
+        if rest.starts_with(b"//") {
+            at = match rest.iter().position(|&b| b == b'\n') {
+                Some(i) => at + i + 1,
+                None => return bytes.len(),
+            };
+        } else if rest.starts_with(b"/*") {
+            at = match rest[2..].windows(2).position(|w| w == b"*/") {
+                Some(i) => at + 2 + i + 2,
+                None => return bytes.len(),
+            };
+        } else {
+            return at;
+        }
+    }
+}
+
+/// The end of the type arguments opening at `at`, or `None` where they cannot
+/// be told apart from a comparison, which the caller takes as a possible tag.
+fn skip_type_arguments(bytes: &[u8], at: usize) -> Option<usize> {
+    const MAX_LEN: usize = 4096;
+    let mut depth = 0usize;
+    for (i, &b) in bytes[at..].iter().enumerate().take(MAX_LEN) {
+        match b {
+            b'<' => depth += 1,
+            // The arrow of a function type closes nothing.
+            b'>' if i > 0 && bytes[at + i - 1] == b'=' => {}
+            b'>' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(at + i + 1);
+                }
+            }
+            b';' | b'`' => return None,
+            _ => {}
+        }
+    }
+    None
 }
 
 pub fn has_generated_header(content: &str) -> bool {
@@ -1940,6 +2048,43 @@ mod tests {
             "// filler\n".repeat(GENERATED_HEADER_MAX_LINES)
         );
         assert!(!has_generated_header(&deep));
+    }
+
+    #[test]
+    fn test_may_contain_graphql_finds_every_embedding() {
+        for source in [
+            "const q = gql`query A { me }`;",
+            "const q = gql(`query A { me }`);",
+            "const q = graphql(schema, `query A { me }`);",
+            "const q = gql\n  `query A { me }`;",
+            "const q = gql /* note */ `query A { me }`;",
+            "const q = gql<Result, Vars>`query A { me }`;",
+            "const q = gql<(v: Vars) => Result>(`query A { me }`);",
+            "const q = gql?.(`query A { me }`);",
+            "const q = /* GraphQL */ `query A { me }`;",
+            "const q = /* graphql: the viewer */ /* more */ `query A { me }`;",
+            "foo(\n  // GraphQL\n  `query A { me }`,\n);",
+            "foo(\n  /**\n   * GraphQL, spanning lines\n   */\n  `query A { me }`,\n);",
+            // Type arguments that cannot be told from a comparison stay candidates.
+            "const q = gql < limit;",
+        ] {
+            assert!(may_contain_graphql(source), "{source}");
+        }
+    }
+
+    #[test]
+    fn test_may_contain_graphql_skips_markers_that_lead_nowhere() {
+        for source in [
+            "export const x = 1;",
+            "import { useViewerQuery } from '../graphql';",
+            "import { MeDocument } from './graphql.generated';",
+            "import { gql } from '@apollo/client';",
+            "const client = useGqlClient(`x`);",
+            "// GraphQL types come from ../graphql\nexport const x = `y`;",
+            "const label = 'graphql';\nconst y = `z`;",
+        ] {
+            assert!(!may_contain_graphql(source), "{source}");
+        }
     }
 
     #[test]
