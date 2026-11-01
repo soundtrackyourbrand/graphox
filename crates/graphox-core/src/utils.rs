@@ -502,6 +502,10 @@ pub fn is_relevant_file(path: &Path) -> bool {
 /// settle the question, it answers `true`.
 pub fn may_contain_graphql(content: &str) -> bool {
     let bytes = content.as_bytes();
+    // Where the last search for a `*/` found one, or `None` where it found
+    // none. Markers come in order, so a search is repeated only past the last
+    // one found, and the file is read for them once however many markers it has.
+    let mut last_close: Option<Option<usize>> = None;
     (0..bytes.len()).any(|at| {
         if !matches!(bytes[at], b'g' | b'G') {
             return false;
@@ -509,8 +513,21 @@ pub fn may_contain_graphql(content: &str) -> bool {
         let rest = &bytes[at..];
         if starts_with_ignore_ascii_case(rest, b"graphql") {
             let end = at + b"graphql".len();
-            (starts_identifier(bytes, at) && tag_reaches_template(bytes, end))
-                || comment_reaches_template(bytes, end)
+            if starts_identifier(bytes, at) && tag_reaches_template(bytes, end) {
+                return true;
+            }
+            let close = match last_close {
+                Some(close) if close.is_none_or(|close| close >= end) => close,
+                _ => {
+                    let close = bytes[end..]
+                        .windows(2)
+                        .position(|w| w == b"*/")
+                        .map(|i| end + i);
+                    last_close = Some(close);
+                    close
+                }
+            };
+            comment_reaches_template(bytes, end, close.map(|close| close + 2))
         } else if starts_with_ignore_ascii_case(rest, b"gql") {
             starts_identifier(bytes, at) && tag_reaches_template(bytes, at + b"gql".len())
         } else {
@@ -531,14 +548,19 @@ fn starts_identifier(bytes: &[u8], at: usize) -> bool {
 /// a template. Any call counts, since the template may be any of its arguments.
 fn tag_reaches_template(bytes: &[u8], from: usize) -> bool {
     let mut at = skip_trivia(bytes, from);
-    if bytes.get(at) == Some(&b'<') {
-        match skip_type_arguments(bytes, at) {
-            Some(end) => at = skip_trivia(bytes, end),
-            None => return true,
+    // Type arguments and an optional call's `?.` come in either order:
+    // `gql<T>?.(…)`, `gql?.<T>(…)`.
+    loop {
+        if bytes.get(at) == Some(&b'<') {
+            match skip_type_arguments(bytes, at) {
+                Some(end) => at = skip_trivia(bytes, end),
+                None => return true,
+            }
+        } else if bytes[at..].starts_with(b"?.") {
+            at = skip_trivia(bytes, at + 2);
+        } else {
+            break;
         }
-    }
-    if bytes[at..].starts_with(b"?.") {
-        at = skip_trivia(bytes, at + 2);
     }
     matches!(bytes.get(at), Some(b'`' | b'('))
 }
@@ -546,14 +568,12 @@ fn tag_reaches_template(bytes: &[u8], from: usize) -> bool {
 /// From just after a GraphQL marker that may sit in a comment: whether, once
 /// that comment ends, only whitespace and comments come before a template. The
 /// comment's kind is unknown, so both a line comment's end and a block
-/// comment's are tried.
-fn comment_reaches_template(bytes: &[u8], from: usize) -> bool {
-    let rest = &bytes[from..];
-    let line_end = rest.iter().position(|&b| b == b'\n').map(|i| from + i + 1);
-    let block_end = rest
-        .windows(2)
-        .position(|w| w == b"*/")
-        .map(|i| from + i + 2);
+/// comment's are tried: `block_end` is just past the first `*/` after `from`.
+fn comment_reaches_template(bytes: &[u8], from: usize, block_end: Option<usize>) -> bool {
+    let line_end = bytes[from..]
+        .iter()
+        .position(|&b| b == b'\n')
+        .map(|i| from + i + 1);
     [line_end, block_end]
         .into_iter()
         .flatten()
@@ -584,7 +604,8 @@ fn skip_trivia(bytes: &[u8], mut at: usize) -> usize {
 }
 
 /// The end of the type arguments opening at `at`, or `None` where they cannot
-/// be told apart from a comparison, which the caller takes as a possible tag.
+/// be told apart from a comparison or hold a string, whose `<` and `>` would
+/// count, which the caller takes as a possible tag.
 fn skip_type_arguments(bytes: &[u8], at: usize) -> Option<usize> {
     const MAX_LEN: usize = 4096;
     let mut depth = 0usize;
@@ -599,7 +620,7 @@ fn skip_type_arguments(bytes: &[u8], at: usize) -> Option<usize> {
                     return Some(at + i + 1);
                 }
             }
-            b';' | b'`' => return None,
+            b';' | b'`' | b'"' | b'\'' => return None,
             _ => {}
         }
     }
@@ -2087,6 +2108,10 @@ mod tests {
             "const q = gql<Result, Vars>`query A { me }`;",
             "const q = gql<(v: Vars) => Result>(`query A { me }`);",
             "const q = gql?.(`query A { me }`);",
+            "const q = gql?.<Result>(`query A { me }`);",
+            "const q = gql<Result>?.(`query A { me }`);",
+            "const q = gql<\"a>b\">(`query A { me }`);",
+            "const q = gql<'a>b'>`query A { me }`;",
             "const q = /* GraphQL */ `query A { me }`;",
             "const q = /* graphql: the viewer */ /* more */ `query A { me }`;",
             "foo(\n  // GraphQL\n  `query A { me }`,\n);",
@@ -2096,6 +2121,20 @@ mod tests {
         ] {
             assert!(may_contain_graphql(source), "{source}");
         }
+    }
+
+    #[test]
+    fn test_may_contain_graphql_finds_a_comment_after_many_markers() {
+        // Each marker searches for the next `*/`; the last one must still
+        // find the one closing its own comment.
+        let imports = "import { A } from '../graphql';\n".repeat(500);
+        assert!(!may_contain_graphql(&imports));
+        assert!(may_contain_graphql(&format!(
+            "{imports}/* x */\nconst q = /* GraphQL */ `query A {{ me }}`;"
+        )));
+        assert!(!may_contain_graphql(&format!(
+            "{imports}/* GraphQL */\nconst q = 1;\nconst r = `x`;"
+        )));
     }
 
     #[test]

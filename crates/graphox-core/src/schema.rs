@@ -315,8 +315,7 @@ pub fn load_schemas(
     let parsed: std::collections::HashMap<_, _> = distinct
         .into_par_iter()
         .map(|(segment, file)| {
-            let document = apollo_compiler::ast::Document::parse(&*segment, file)
-                .map_err(|e| e.errors.to_string());
+            let document = apollo_compiler::ast::Document::parse(&*segment, file).ok();
             (segment, document)
         })
         .collect();
@@ -328,10 +327,22 @@ pub fn load_schemas(
             let parse_error = |e: &dyn std::fmt::Display| {
                 format!("Failed to parse schema {}: {e}", source.as_key())
             };
+            let segments = segments?;
+            let documents: Option<Vec<&apollo_compiler::ast::Document>> = segments
+                .iter()
+                .map(|(_, segment)| parsed[segment].as_ref())
+                .collect();
+            let Some(documents) = documents else {
+                // A file need not parse on its own, as long as the merged text
+                // does: a definition may continue into the next file. Parse the
+                // merged text as a whole, which also reports what is wrong as
+                // [`load_schema_with_cache`] does.
+                let merged: String = segments.iter().map(|(_, s)| format!("{s}\n")).collect();
+                return Schema::parse(merged, source.as_key()).map_err(|e| parse_error(&e));
+            };
             let mut builder = Schema::builder();
-            for (_, segment) in segments? {
-                let document: &Result<apollo_compiler::ast::Document, String> = &parsed[&segment];
-                builder = builder.add_ast(document.as_ref().map_err(|e| parse_error(e))?);
+            for document in documents {
+                builder = builder.add_ast(document);
             }
             builder.build().map_err(|e| parse_error(&e))
         })
@@ -516,6 +527,21 @@ mod tests {
             .remove(0)
             .unwrap();
         assert_ne!(uncached.to_string(), expected);
+    }
+
+    #[test]
+    #[ntest::timeout(10000)]
+    fn test_load_schemas_loads_a_definition_split_across_files() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("open.graphqls"), "type Query {\n").unwrap();
+        std::fs::write(dir.path().join("close.graphqls"), "  a: Int\n}\n").unwrap();
+        let source = SchemaSource::Multiple(vec!["open.graphqls".into(), "close.graphqls".into()]);
+
+        let merged = load_schema_no_cache(dir.path(), &source).unwrap();
+        let loaded = load_schemas(dir.path(), &[&source], false)
+            .remove(0)
+            .unwrap();
+        assert_eq!(merged.to_string(), loaded.to_string());
     }
 
     #[test]

@@ -2477,18 +2477,20 @@ mod tests {
     fn test_graphql_found_wherever_the_rope_splits_its_marker() {
         // The rope stores text in chunks of about a kilobyte. A file whose only
         // marker straddles two of them still holds GraphQL.
-        for before in 490..530 {
-            let src = format!(
-                "/*{}*/\nconst q = graphql(`query A {{ me }}`);\n/*{}*/\n",
-                "x".repeat(before),
-                "y".repeat(500)
-            );
-            let doc = create_doc(&src, PositionEncodingKind::UTF8);
-            assert_eq!(
-                doc.graphql_trees.len(),
-                1,
-                "{before} bytes before the marker"
-            );
+        for embedding in ["graphql(`query A { me }`)", "gql`query A { me }`"] {
+            for before in 490..530 {
+                let src = format!(
+                    "/*{}*/\nconst q = {embedding};\n/*{}*/\n",
+                    "x".repeat(before),
+                    "y".repeat(500)
+                );
+                let doc = create_doc(&src, PositionEncodingKind::UTF8);
+                assert_eq!(
+                    doc.graphql_trees.len(),
+                    1,
+                    "{embedding} after {before} bytes"
+                );
+            }
         }
     }
 
