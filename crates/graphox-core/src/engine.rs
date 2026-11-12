@@ -704,12 +704,15 @@ impl Engine {
                 let canonical_posix = crate::utils::to_posix_path(&canonical);
                 if seen_paths.insert(canonical_posix) {
                     // Each file under its own path, so a diagnostic that quotes a
-                    // fragment names the file and line it is written on.
-                    parser.parse_into_executable_builder(
-                        source.as_ref(),
-                        frag.path.as_ref(),
-                        &mut builder,
-                    );
+                    // fragment names the file and line it is written on. Parsed
+                    // apart from the builder: parsing into it hands every file
+                    // the sources of all files before it, which the builder then
+                    // copies, quadratic in the number of files. Only duplicate
+                    // fragments matter here, and the builder reports those.
+                    let ast = parser
+                        .parse_ast(source.as_ref(), frag.path.as_ref())
+                        .unwrap_or_else(|with_errors| with_errors.partial);
+                    builder.add_ast_document(&ast, true);
                 }
             }
         }

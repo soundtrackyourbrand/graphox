@@ -123,3 +123,40 @@ fn codegen_refuses_an_operation_whose_fragments_conflict() {
         "{out}"
     );
 }
+
+#[test]
+#[ntest::timeout(20000)]
+fn a_document_shared_by_two_projects_is_judged_against_each_schema() {
+    // Both projects include the same file. Under the first schema both
+    // `author` fields are non-null and merge; under the second they conflict.
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("compatible.graphql"),
+        SCHEMA.replace(
+            "type Video { author: Author title",
+            "type Video { author: Author! title",
+        ),
+    )
+    .unwrap();
+    std::fs::write(dir.path().join("conflicting.graphql"), SCHEMA).unwrap();
+    std::fs::create_dir_all(dir.path().join("src")).unwrap();
+    std::fs::write(
+        dir.path().join("src/feed.graphql"),
+        "query Feed { feed { ... on Article { author { id } } ... on Video { author { id } } } }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.path().join("graphox.yaml"),
+        "projects:\n\
+         \x20 - schema: \"compatible.graphql\"\n    include: \"src/**/*.graphql\"\n    output_dir: \"gen-a\"\n\
+         \x20 - schema: \"conflicting.graphql\"\n    include: \"src/**/*.graphql\"\n    output_dir: \"gen-b\"\n",
+    )
+    .unwrap();
+
+    let (out, code) = run(&dir, "check");
+    assert_eq!(code, Some(1), "{out}");
+    assert!(
+        out.contains("must not select different types using the same name `author`"),
+        "{out}"
+    );
+}
