@@ -53,6 +53,8 @@ pub struct CodegenContext<'a> {
     pub fragment_to_import: &'a HashMap<FragmentId, Arc<str>>,
     pub fragment_to_type_only: &'a HashMap<FragmentId, bool>,
     pub all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
+    /// The files `all_fragments` were parsed from.
+    pub fragment_sources: &'a apollo_compiler::parser::SourceMap,
     pub name_to_id: &'a HashMap<Arc<str>, FragmentId>,
     pub current_file_path: &'a Path,
     pub scalars: &'a HashMap<String, String>,
@@ -77,6 +79,7 @@ impl<'a> CodegenContext<'a> {
         fragment_to_import: &'a HashMap<FragmentId, Arc<str>>,
         fragment_to_type_only: &'a HashMap<FragmentId, bool>,
         all_fragments: &'a HashMap<Arc<str>, Node<executable::Fragment>>,
+        fragment_sources: &'a apollo_compiler::parser::SourceMap,
         name_to_id: &'a HashMap<Arc<str>, FragmentId>,
         current_file_path: &'a Path,
         scalars: &'a HashMap<String, String>,
@@ -108,6 +111,7 @@ impl<'a> CodegenContext<'a> {
             fragment_to_import,
             fragment_to_type_only,
             all_fragments,
+            fragment_sources,
             name_to_id,
             current_file_path,
             scalars,
@@ -686,6 +690,7 @@ mod tests {
         let fragment_to_import = HashMap::new();
         let fragment_to_type_only = HashMap::new();
         let all_fragments = HashMap::new();
+        let fragment_sources = Default::default();
         let fragment_output_paths = HashMap::default();
         let current_file_path = Path::new("/a/b/c.ts");
         let scalars = HashMap::new();
@@ -706,6 +711,7 @@ mod tests {
             fragment_to_import: &fragment_to_import,
             fragment_to_type_only: &fragment_to_type_only,
             all_fragments: &all_fragments,
+            fragment_sources: &fragment_sources,
             name_to_id: &name_to_id,
             current_file_path,
             scalars: &scalars,

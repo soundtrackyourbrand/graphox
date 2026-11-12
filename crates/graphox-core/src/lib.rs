@@ -4,6 +4,7 @@ pub mod ast_printer;
 pub mod config;
 pub mod document;
 pub mod engine;
+pub mod field_merging;
 pub mod queries;
 pub mod schema;
 pub mod schema_cache;

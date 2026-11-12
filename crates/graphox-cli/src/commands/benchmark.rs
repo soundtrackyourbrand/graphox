@@ -198,6 +198,7 @@ pub async fn run_benchmark(config: Config, _verbose: bool, instrument_scan: bool
                         project_fragment_to_import,
                         &project_context.fragment_to_type_only,
                         all_fragments,
+                        &project_context.fragment_sources,
                         &project_context.name_to_id,
                         path,
                         config.scalars(),

@@ -4,15 +4,19 @@
 //! `graphox_core::apollo_messages` matches message text. These tests trigger
 //! each rule through apollo and assert the pattern still matches, so a reword
 //! upstream fails here instead of silently changing which diagnostics reach
-//! users. Every rule in `HANDLED_BY_GRAPHOX` must appear in `CASES`.
+//! users. Every rule in `HANDLED_BY_GRAPHOX` and `FIELD_MERGING` must appear
+//! in `CASES`.
 
 use apollo_compiler::{ExecutableDocument, Schema};
-use graphox_core::apollo_messages::{self, DUPLICATE_FRAGMENT, HANDLED_BY_GRAPHOX, MessageRule};
+use graphox_core::apollo_messages::{
+    self, DUPLICATE_FRAGMENT, FIELD_MERGING, HANDLED_BY_GRAPHOX, MessageRule,
+};
 
 const SCHEMA: &str = r#"
-type Query { user(id: ID!): User, users(first: Int): [User] }
+type Query { user(id: ID!): User, users(first: Int): [User], things: [Thing] }
 type User { id: ID! name: String pet: Pet }
-type Pet { id: ID! owner: User }
+type Pet { id: ID! owner: User name: String! }
+union Thing = User | Pet
 "#;
 
 /// A document that provokes the named rule, and the rendered diagnostics.
@@ -51,6 +55,10 @@ const CASES: &[(&str, &str)] = &[
         "query A { a: user(id:\"1\"){id} a: users{id} }",
     ),
     (
+        "alias_type_conflict",
+        "query A { things { ... on User { name } ... on Pet { name } } }",
+    ),
+    (
         "alias_field_conflict",
         "query A { a: user(id:\"1\"){id} a: users{id} }",
     ),
@@ -84,6 +92,7 @@ const CASES: &[(&str, &str)] = &[
 fn rule(name: &str) -> &'static MessageRule {
     HANDLED_BY_GRAPHOX
         .iter()
+        .chain(FIELD_MERGING)
         .chain(DUPLICATE_FRAGMENT)
         .find(|r| r.name == name)
         .unwrap_or_else(|| panic!("no rule named {name}"))
@@ -118,7 +127,11 @@ fn every_rule_still_matches_a_real_apollo_message() {
 
 #[test]
 fn every_rule_has_a_case() {
-    for r in HANDLED_BY_GRAPHOX.iter().chain(DUPLICATE_FRAGMENT) {
+    for r in HANDLED_BY_GRAPHOX
+        .iter()
+        .chain(FIELD_MERGING)
+        .chain(DUPLICATE_FRAGMENT)
+    {
         assert!(
             CASES.iter().any(|(name, _)| *name == r.name),
             "rule `{}` has no case in CASES, so nothing proves it still matches",

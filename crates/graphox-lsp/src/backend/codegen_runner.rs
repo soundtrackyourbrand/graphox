@@ -622,6 +622,7 @@ pub async fn run_codegen(
                         &project_context.fragment_to_import,
                         &project_context.fragment_to_type_only,
                         &project_context.all_fragments,
+                        &project_context.fragment_sources,
                         &project_context.name_to_id,
                         path,
                         config_for_project.scalars(),

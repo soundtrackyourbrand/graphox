@@ -220,6 +220,24 @@ pub fn generate_typescript_with_profile(
             ));
         }
 
+        let conflicts = graphox_core::field_merging::conflicts(
+            ctx.schema,
+            &exec_doc,
+            ctx.all_fragments,
+            ctx.fragment_sources,
+        );
+        if !conflicts.is_empty() {
+            return Err(format!(
+                "GraphQL validation errors in file {}:\n{}",
+                graphox_core::utils::uri_path_text(&doc.uri),
+                conflicts
+                    .iter()
+                    .map(|c| c.report.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            ));
+        }
+
         profile.parse_time += parse_start.elapsed();
 
         for op in exec_doc.operations.iter() {
@@ -944,6 +962,7 @@ fragment ReconcileUser on User {
         let fragment_to_import = HashMap::default();
         let fragment_to_type_only = HashMap::default();
         let all_fragments = HashMap::default();
+        let fragment_sources = Default::default();
         let name_to_id = HashMap::default();
         let fragment_dependencies = HashMap::default();
         let scalars = HashMap::default();
@@ -967,6 +986,7 @@ fragment ReconcileUser on User {
             fragment_to_import: &fragment_to_import,
             fragment_to_type_only: &fragment_to_type_only,
             all_fragments: &all_fragments,
+            fragment_sources: &fragment_sources,
             name_to_id: &name_to_id,
             current_file_path: path,
             scalars: &scalars,

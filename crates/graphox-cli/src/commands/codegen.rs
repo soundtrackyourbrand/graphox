@@ -1034,6 +1034,7 @@ fn generate_project_files_sync(
                 &params.project_context.fragment_to_import,
                 &params.project_context.fragment_to_type_only,
                 &params.project_context.all_fragments,
+                &params.project_context.fragment_sources,
                 &params.project_context.name_to_id,
                 path,
                 params.scalars,
