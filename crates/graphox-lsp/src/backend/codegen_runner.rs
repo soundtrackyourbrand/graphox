@@ -313,6 +313,7 @@ pub fn collect_codegen_metadata(
                 continue;
             };
 
+            let masked_ast = Arc::new(std::sync::OnceLock::new());
             for frag in doc.fragments() {
                 global_metadata.push(graphox_core::engine::FragmentMetadata {
                     name: frag.name.clone(),
@@ -322,6 +323,7 @@ pub fn collect_codegen_metadata(
                     is_public: frag.is_public,
                     is_type_only: frag.is_type_only,
                     masked_source: Some(doc.masked_source.clone()),
+                    masked_ast: masked_ast.clone(),
                     direct_deps: frag.used_fragments.clone(),
                     transitive_deps: Arc::from([]),
                     type_fields: frag.type_fields.clone(),
@@ -449,6 +451,7 @@ pub async fn run_codegen(
     }
 
     let mut successful_projects = Vec::with_capacity(total_projects);
+    let mut failed_files = 0;
     // Keyed by project index, and only populated for projects that ran to completion:
     // this is both the keep-set and the safety gate for orphan pruning below.
     let mut project_outputs_by_index: ahash::AHashMap<usize, Vec<PathBuf>> =
@@ -622,6 +625,7 @@ pub async fn run_codegen(
                         &project_context.fragment_to_import,
                         &project_context.fragment_to_type_only,
                         &project_context.all_fragments,
+                        &project_context.fragment_sources,
                         &project_context.name_to_id,
                         path,
                         config_for_project.scalars(),
@@ -688,10 +692,12 @@ pub async fn run_codegen(
                                 // operations" is the one failure that legitimately
                                 // produces no file at all.
                                 let keep = !e.contains("No executable operations");
+                                let failure = keep.then(|| format!("{}: {e}", path.display()));
                                 return Some((
                                     keep.then_some(abs_out_path),
                                     Vec::new(),
                                     Vec::new(),
+                                    failure,
                                 ));
                             }
                         };
@@ -710,10 +716,10 @@ pub async fn run_codegen(
                         if let Some(parent) = abs_out_path.parent()
                             && std::fs::create_dir_all(parent).is_err()
                         {
-                            return Some((Some(abs_out_path), Vec::new(), Vec::new()));
+                            return Some((Some(abs_out_path), Vec::new(), Vec::new(), None));
                         }
                         if std::fs::write(&abs_out_path, ts_code).is_err() {
-                            return Some((Some(abs_out_path), Vec::new(), Vec::new()));
+                            return Some((Some(abs_out_path), Vec::new(), Vec::new(), None));
                         }
                     }
 
@@ -724,7 +730,7 @@ pub async fn run_codegen(
                         frag.codegen_path = abs_out_path.clone();
                     }
 
-                    Some((Some(abs_out_path), ops, frags))
+                    Some((Some(abs_out_path), ops, frags, None))
                 })
                 .collect::<Vec<_>>();
 
@@ -734,13 +740,21 @@ pub async fn run_codegen(
             // orphan pruning, which must survive a file that failed to generate.
             let mut project_output_paths: Vec<PathBuf> = Vec::new();
 
-            for (out_path, ops, frags) in project_results {
+            let mut project_failures: Vec<String> = Vec::new();
+
+            for (out_path, ops, frags, failure) in project_results {
                 project_ops.extend(ops);
                 project_frags.extend(frags);
                 project_output_paths.extend(out_path);
+                project_failures.extend(failure);
             }
 
-            (project_ops, project_frags, project_output_paths)
+            (
+                project_ops,
+                project_frags,
+                project_output_paths,
+                project_failures,
+            )
         })
         .await
         {
@@ -759,7 +773,16 @@ pub async fn run_codegen(
             }
         };
 
-        let (project_ops, project_frags, project_output_paths) = generated;
+        let (project_ops, project_frags, project_output_paths, project_failures) = generated;
+        failed_files += project_failures.len();
+        for failure in project_failures {
+            client
+                .log_message(
+                    MessageType::WARNING,
+                    format!("Codegen kept the previous output for {failure}"),
+                )
+                .await;
+        }
 
         // A file that exists but couldn't be read is missing from the document set,
         // which is indistinguishable from "holds no GraphQL" — so this project's
@@ -976,12 +999,14 @@ pub async fn run_codegen(
             .await;
     }
 
-    progress
-        .end(Some(format!(
-            "Generated types for {} projects",
-            total_projects
-        )))
-        .await;
+    let summary = if failed_files == 0 {
+        format!("Generated types for {total_projects} projects")
+    } else {
+        format!(
+            "Generated types for {total_projects} projects; {failed_files} file(s) failed and kept their previous output"
+        )
+    };
+    progress.end(Some(summary)).await;
 }
 
 #[cfg(test)]

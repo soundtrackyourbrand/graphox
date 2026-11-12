@@ -274,6 +274,7 @@ pub(crate) fn projects_in_scope(config: &Config, app: Option<&str>) -> Vec<bool>
 pub(crate) struct ResolvedProject {
     pub project_idx: usize,
     pub schema_key: String,
+    pub schema: ValidSchema,
     /// The project's scanned files, as keys into `WorkspaceMetadata::documents`.
     pub files: Vec<PathBuf>,
     pub context: ProjectContext,
@@ -326,6 +327,7 @@ pub(crate) fn resolve_projects(
                 Ok(context) => Some(ResolvedProject {
                     project_idx,
                     schema_key,
+                    schema: schema.clone(),
                     files,
                     context,
                 }),

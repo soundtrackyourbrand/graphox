@@ -18,6 +18,10 @@ pub struct FragmentMetadata {
     pub is_public: bool,
     pub is_type_only: bool,
     pub masked_source: Option<Arc<str>>,
+    /// `masked_source` parsed under `path`, on first use. Shared by every
+    /// fragment of the file, so projects that resolve the same file parse it
+    /// once.
+    pub masked_ast: Arc<std::sync::OnceLock<apollo_compiler::ast::Document>>,
     /// Direct fragment dependencies (extracted during document parsing)
     /// Contains fragment names that this fragment directly spreads
     pub direct_deps: Arc<[Arc<str>]>,
@@ -91,10 +95,19 @@ pub struct ProjectContext {
     pub fragment_to_import: HashMap<FragmentId, Arc<str>>,
     pub fragment_to_type_only: HashMap<FragmentId, bool>,
     pub all_fragments: HashMap<Arc<str>, Node<executable::Fragment>>,
+    /// The files `all_fragments` were parsed from, which apollo needs to quote
+    /// them in a diagnostic.
+    pub fragment_sources: apollo_compiler::parser::SourceMap,
     /// Maps fragment name to its primary fragment ID in this project context
     pub name_to_id: HashMap<Arc<str>, FragmentId>,
     /// Cached fragment dependencies: fragment ID -> list of transitive dependencies (name, path)
     pub fragment_dependencies: HashMap<FragmentId, TransitiveDeps>,
+}
+
+#[derive(Debug)]
+pub struct ResolvedFragments {
+    pub fragments: HashMap<Arc<str>, Node<executable::Fragment>>,
+    pub sources: apollo_compiler::parser::SourceMap,
 }
 
 pub struct Engine;
@@ -220,8 +233,10 @@ impl Engine {
             i += 1;
         }
 
-        let all_fragments =
-            Self::resolve_fragments(valid_schema, &final_project_fragments_metadata)?;
+        let ResolvedFragments {
+            fragments: all_fragments,
+            sources: fragment_sources,
+        } = Self::resolve_fragments(valid_schema, &final_project_fragments_metadata)?;
 
         // Build fragment dependency cache from the metadata
         let mut fragment_dependencies: HashMap<FragmentId, TransitiveDeps> = HashMap::default();
@@ -238,6 +253,7 @@ impl Engine {
             fragment_to_import,
             fragment_to_type_only,
             all_fragments,
+            fragment_sources,
             name_to_id,
             fragment_dependencies,
         })
@@ -535,6 +551,7 @@ impl Engine {
                             }
 
                             if !reused {
+                                let masked_ast = Arc::new(std::sync::OnceLock::new());
                                 for frag in doc.fragments() {
                                     fragments.push(FragmentMetadata {
                                         name: frag.name.clone(),
@@ -544,6 +561,7 @@ impl Engine {
                                         is_public: frag.is_public,
                                         is_type_only: frag.is_type_only,
                                         masked_source: Some(doc.masked_source.clone()),
+                                        masked_ast: masked_ast.clone(),
                                         direct_deps: frag.used_fragments.clone(),
                                         transitive_deps: Arc::from([]),
                                         type_fields: frag.type_fields.clone(),
@@ -678,14 +696,11 @@ impl Engine {
     pub fn resolve_fragments(
         valid_schema: &apollo_compiler::validation::Valid<Schema>,
         fragments: &[FragmentMetadata],
-    ) -> Result<HashMap<Arc<str>, apollo_compiler::Node<executable::Fragment>>, String> {
-        // Pre-allocate with estimated capacity to reduce reallocations
-        let estimated_size: usize = fragments
-            .iter()
-            .map(|f| f.masked_source.as_ref().map(|s| s.len() + 1).unwrap_or(0))
-            .sum();
-        let mut combined_source = String::with_capacity(estimated_size);
+    ) -> Result<ResolvedFragments, String> {
         let mut seen_paths = HashSet::default();
+        let mut errors = apollo_compiler::validation::DiagnosticList::new(Default::default());
+        let mut builder = executable::ExecutableDocument::builder(Some(valid_schema), &mut errors);
+        let mut parser = apollo_compiler::parser::Parser::new();
 
         for frag in fragments {
             if let Some(source) = &frag.masked_source {
@@ -694,36 +709,37 @@ impl Engine {
                 let canonical = crate::utils::canonicalize_cached(Path::new(frag.path.as_ref()));
                 let canonical_posix = crate::utils::to_posix_path(&canonical);
                 if seen_paths.insert(canonical_posix) {
-                    combined_source.push_str(source);
-                    combined_source.push('\n');
+                    // Each file under its own path, so a diagnostic that quotes a
+                    // fragment names the file and line it is written on. Parsed
+                    // apart from the builder: parsing into it hands every file
+                    // the sources of all files before it, which the builder then
+                    // copies, quadratic in the number of files. Only duplicate
+                    // fragments matter here, and the builder reports those.
+                    let ast = frag.masked_ast.get_or_init(|| {
+                        parser
+                            .parse_ast(source.as_ref(), frag.path.as_ref())
+                            .unwrap_or_else(|with_errors| with_errors.partial)
+                    });
+                    builder.add_ast_document(ast, true);
                 }
             }
         }
 
-        // ExecutableDocument::parse will resolve all fragment spreads against each other.
-        let (exec_doc, errors) = match executable::ExecutableDocument::parse(
-            valid_schema,
-            combined_source,
-            "workspace.graphql",
-        ) {
-            Ok(doc) => (doc, None),
-            Err(with_errors) => (with_errors.partial, Some(with_errors.errors)),
-        };
+        // The builder resolves all fragment spreads against each other.
+        let exec_doc = builder.build();
 
-        if let Some(errors) = errors {
-            let mut critical_errors = Vec::new();
-            for err in errors.iter() {
-                let err_str = err.to_string();
-                // Matches the summary line only. err_str is a rendered report
-                // that quotes the source, so matching all of it would let a
-                // comment mentioning a duplicate fragment fail the workspace.
-                if crate::apollo_messages::is_duplicate_fragment(&err_str) {
-                    critical_errors.push(err_str);
-                }
+        let mut critical_errors = Vec::new();
+        for err in errors.iter() {
+            let err_str = err.to_string();
+            // Matches the summary line only. err_str is a rendered report
+            // that quotes the source, so matching all of it would let a
+            // comment mentioning a duplicate fragment fail the workspace.
+            if crate::apollo_messages::is_duplicate_fragment(&err_str) {
+                critical_errors.push(err_str);
             }
-            if !critical_errors.is_empty() {
-                return Err(critical_errors.join("\n"));
-            }
+        }
+        if !critical_errors.is_empty() {
+            return Err(critical_errors.join("\n"));
         }
 
         // Pre-allocate HashMap with known capacity - use Arc<str> to avoid string allocations
@@ -732,7 +748,10 @@ impl Engine {
         for (name, frag) in exec_doc.fragments {
             all_fragments.insert(Arc::from(name.as_str()), frag);
         }
-        Ok(all_fragments)
+        Ok(ResolvedFragments {
+            fragments: all_fragments,
+            sources: exec_doc.sources,
+        })
     }
 
     /// Compute transitive fragment dependencies for all fragments
@@ -982,6 +1001,7 @@ mod tests {
                 import_alias: None,
                 is_public: true,
                 is_type_only: false,
+                masked_ast: Default::default(),
                 masked_source: Some(Arc::from("fragment UserFields on User { id }")),
                 direct_deps: Arc::from([]),
                 transitive_deps: Arc::from([]),
@@ -994,6 +1014,7 @@ mod tests {
                 import_alias: None,
                 is_public: true,
                 is_type_only: false,
+                masked_ast: Default::default(),
                 masked_source: Some(Arc::from("fragment UserFields on User { name }")),
                 direct_deps: Arc::from([]),
                 transitive_deps: Arc::from([]),
@@ -1027,6 +1048,7 @@ mod tests {
                 import_alias: None,
                 is_public: true,
                 is_type_only: false,
+                masked_ast: Default::default(),
                 masked_source: Some(Arc::from(
                     "fragment UserFields on User { id }\nquery GetUser { user { ...UserFields } }",
                 )),
@@ -1041,6 +1063,7 @@ mod tests {
                 import_alias: None,
                 is_public: true,
                 is_type_only: false,
+                masked_ast: Default::default(),
                 masked_source: Some(Arc::from(
                     "fragment UserName on User { name }\nquery GetUser { user { ...UserName } }",
                 )),

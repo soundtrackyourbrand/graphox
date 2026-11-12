@@ -66,18 +66,6 @@ pub const HANDLED_BY_GRAPHOX: &[MessageRule] = &[
         needles: &["must not contain"],
     },
     MessageRule {
-        name: "alias_type_conflict",
-        needles: &["must not select different types using the same name"],
-    },
-    MessageRule {
-        name: "alias_field_conflict",
-        needles: &["cannot select different fields into the same alias"],
-    },
-    MessageRule {
-        name: "conflicting_arguments",
-        needles: &["conflicting field arguments"],
-    },
-    MessageRule {
         name: "recursive_fragment",
         needles: &["cannot reference itself"],
     },
@@ -104,6 +92,26 @@ pub const HANDLED_BY_GRAPHOX: &[MessageRule] = &[
     },
 ];
 
+/// The spec's field merging rule (`FieldsInSetCanMerge`): selections that share
+/// a response key must agree on field, arguments and type, nullability
+/// included. The selections can sit in fragments from other files, which a
+/// single block does not have, so [`crate::field_merging`] judges each
+/// operation with its fragments resolved and a block's own copy is dropped.
+pub const FIELD_MERGING: &[MessageRule] = &[
+    MessageRule {
+        name: "alias_type_conflict",
+        needles: &["must not select different types using the same name"],
+    },
+    MessageRule {
+        name: "alias_field_conflict",
+        needles: &["cannot select different fields into the same alias"],
+    },
+    MessageRule {
+        name: "conflicting_arguments",
+        needles: &["conflicting field arguments"],
+    },
+];
+
 /// A fragment name defined more than once across the workspace. The engine
 /// treats this as fatal for fragment resolution, so it is matched separately
 /// from the diagnostics that are merely suppressed. Operation-name collisions
@@ -124,7 +132,16 @@ pub const TOLERATED_BUILD_ERRORS: &[MessageRule] = &[MessageRule {
 /// Whether graphox reports this diagnostic itself, so apollo's copy is dropped.
 pub fn is_handled_by_graphox(rendered: &str) -> bool {
     let s = summary(rendered);
-    HANDLED_BY_GRAPHOX.iter().any(|r| r.matches(s))
+    HANDLED_BY_GRAPHOX
+        .iter()
+        .chain(FIELD_MERGING)
+        .any(|r| r.matches(s))
+}
+
+/// Whether this diagnostic reports a field merging conflict.
+pub fn is_field_merging(rendered: &str) -> bool {
+    let s = summary(rendered);
+    FIELD_MERGING.iter().any(|r| r.matches(s))
 }
 
 /// Whether this diagnostic reports a duplicated fragment name.

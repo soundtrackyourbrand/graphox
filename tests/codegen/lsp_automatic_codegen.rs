@@ -2341,3 +2341,88 @@ async fn test_lsp_automatic_codegen_writes_the_same_facts_as_the_cli() {
     sleep(Duration::from_millis(300)).await;
     assert_eq!(fs::read_to_string(&facts_path).unwrap(), cli_facts);
 }
+
+/// Output for a file that fails to generate is kept, so the failure has to be
+/// told: it is logged with the file and the error, and counted in the summary.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[ntest::timeout(30000)]
+async fn test_codegen_logs_a_file_that_fails_to_generate() {
+    let dir = tempdir().unwrap();
+    let base_dir = dir.path().canonicalize().unwrap();
+    fs::write(
+        base_dir.join("schema.graphql"),
+        "type Query { feed: [Entry] }
+         union Entry = Article | Video
+         type Author { id: ID! }
+         type Article { author: Author! }
+         type Video { author: Author }",
+    )
+    .unwrap();
+    fs::create_dir_all(base_dir.join("src")).unwrap();
+    fs::write(
+        base_dir.join("src/feed.graphql"),
+        "query Feed { feed { ... on Article { author { id } } ... on Video { author { id } } } }",
+    )
+    .unwrap();
+    let config = Config::new_test(
+        base_dir.clone(),
+        vec![
+            ProjectConfig::default()
+                .with_schema(SchemaSource::Single("schema.graphql".to_string()))
+                .with_include(GlobPattern::Single("src/**/*.graphql".to_string()))
+                .with_output_dir("gen".to_string()),
+        ],
+    )
+    .with_lsp_automatic_codegen(false)
+    .with_enable_schema_cache(false);
+
+    let (mut service, mut messages) = support::create_lsp_service_with_socket(config);
+    let (log_tx, mut log_rx) = tokio::sync::mpsc::unbounded_channel::<String>();
+    tokio::spawn(async move {
+        while let Some(msg) = messages.next().await {
+            if msg.get("method").and_then(|m| m.as_str()) == Some("window/logMessage")
+                && let Ok(params) = serde_json::from_value::<LogMessageParams>(
+                    msg.get("params").cloned().unwrap_or_default(),
+                )
+            {
+                let _ = log_tx.send(params.message);
+            }
+        }
+    });
+    service
+        .call(
+            Request::build("initialize")
+                .params(serde_json::to_value(InitializeParams::default()).unwrap())
+                .id(0)
+                .finish(),
+        )
+        .await
+        .unwrap();
+    service
+        .call(
+            Request::build("initialized")
+                .params(serde_json::json!({}))
+                .finish(),
+        )
+        .await
+        .unwrap();
+    while let Some(message) = log_rx.recv().await {
+        if message.starts_with("Workspace scan complete") {
+            break;
+        }
+    }
+
+    service.inner().run_codegen().await;
+
+    let failure = loop {
+        let message = log_rx.recv().await.expect("the server stopped logging");
+        if message.starts_with("Codegen kept the previous output for") {
+            break message;
+        }
+    };
+    assert!(failure.contains("feed.graphql"), "{failure}");
+    assert!(
+        failure.contains("must not select different types using the same name `author`"),
+        "{failure}"
+    );
+}

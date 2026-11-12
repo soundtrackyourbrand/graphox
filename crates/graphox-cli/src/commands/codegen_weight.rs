@@ -169,6 +169,7 @@ pub async fn run_codegen_weight(config: Config, params: CodegenWeightParams) {
                     &project.context.fragment_to_import,
                     &project.context.fragment_to_type_only,
                     &project.context.all_fragments,
+                    &project.context.fragment_sources,
                     &project.context.name_to_id,
                     path,
                     config.scalars(),

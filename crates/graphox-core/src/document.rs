@@ -555,8 +555,15 @@ impl DocumentState {
         text: &str,
     ) -> Result<CachedExecutableDocument, String> {
         let mut hasher = ahash::AHasher::default();
-        use std::hash::Hasher;
+        use std::hash::{Hash, Hasher};
         hasher.write(text.as_bytes());
+        // A parsed document carries the schema's field definitions, so one
+        // shared by projects with different schemas is cached per schema. The
+        // files a schema was parsed from identify it: apollo never reuses a
+        // `FileId`, and reparsing a schema gives it new ones.
+        for file_id in schema.sources.keys() {
+            file_id.hash(&mut hasher);
+        }
         let hash = hasher.finish();
 
         if let Some(cache) = self.executable_docs.get()

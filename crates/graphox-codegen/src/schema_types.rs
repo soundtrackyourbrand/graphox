@@ -16,6 +16,7 @@ pub fn generate_schema_types(
     output.push_str("/* tslint:disable */\n/* eslint-disable */\n// This file was automatically generated and should not be edited.\n\n");
 
     let empty_fragments = HashMap::default();
+    let empty_sources = Default::default();
     let empty_deps = HashMap::default();
     let empty_path_map = HashMap::default();
     let empty_output_path_map = HashMap::default();
@@ -32,6 +33,7 @@ pub fn generate_schema_types(
         &empty_import_map,
         &empty_type_only_map,
         &empty_fragments,
+        &empty_sources,
         &empty_name_to_id,
         Path::new(""),
         scalars,
