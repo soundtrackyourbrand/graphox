@@ -10,7 +10,7 @@
 use crate::apollo_messages;
 use ahash::{AHashMap as HashMap, AHashSet as HashSet};
 use apollo_compiler::executable::{
-    ExecutableDocument, Fragment, OperationMap, Selection, SelectionSet,
+    ExecutableDocument, Field, Fragment, OperationMap, Selection, SelectionSet,
 };
 use apollo_compiler::parser::{SourceMap, SourceSpan};
 use apollo_compiler::validation::Valid;
@@ -40,6 +40,9 @@ pub fn conflicts(
 ) -> Vec<FieldConflict> {
     let mut found = Vec::new();
     for operation in block.operations.iter() {
+        if !may_conflict(&operation.selection_set, block, fragments) {
+            continue;
+        }
         let mut document = block.clone();
         document.operations = OperationMap::from_one(operation.clone());
         for name in spread_closure(&operation.selection_set, block, fragments) {
@@ -73,6 +76,84 @@ pub fn conflicts(
         }
     }
     found
+}
+
+/// Whether the selections could fail to merge. Selections that share a
+/// response key merge when they select the same field with the same arguments
+/// and directives and return the same type, and their own selections merge in
+/// turn. Only an operation where that does not hold everywhere is handed to
+/// apollo, whose validation runs every rule and costs far more than this walk.
+/// Answers `true` whenever it cannot tell.
+fn may_conflict(
+    selection_set: &SelectionSet,
+    block: &ExecutableDocument,
+    fragments: &HashMap<Arc<str>, Node<Fragment>>,
+) -> bool {
+    may_conflict_among(&[selection_set], block, fragments, 0)
+}
+
+/// Selections nested deeper than this are taken for a recursive fragment and
+/// left to apollo, which reports it.
+const MAX_DEPTH: usize = 64;
+
+/// `sets` are the selection sets that merge into one response object: the
+/// operation's own, or those of every field selected under one response key.
+fn may_conflict_among(
+    sets: &[&SelectionSet],
+    block: &ExecutableDocument,
+    fragments: &HashMap<Arc<str>, Node<Fragment>>,
+    depth: usize,
+) -> bool {
+    if depth > MAX_DEPTH {
+        return true;
+    }
+    let mut by_key: HashMap<&str, Vec<&Node<Field>>> = HashMap::default();
+    let mut expanded: HashSet<&str> = HashSet::default();
+    let mut pending: Vec<&SelectionSet> = sets.to_vec();
+    while let Some(set) = pending.pop() {
+        for selection in &set.selections {
+            match selection {
+                Selection::Field(field) => by_key
+                    .entry(field.response_key().as_str())
+                    .or_default()
+                    .push(field),
+                Selection::InlineFragment(inline) => pending.push(&inline.selection_set),
+                Selection::FragmentSpread(spread) => {
+                    let name = spread.fragment_name.as_str();
+                    if !expanded.insert(name) {
+                        continue;
+                    }
+                    let Some(fragment) = block.fragments.get(name).or_else(|| fragments.get(name))
+                    else {
+                        return true;
+                    };
+                    pending.push(&fragment.selection_set);
+                }
+            }
+        }
+    }
+    by_key.values().any(|fields| {
+        let first = fields[0];
+        fields[1..]
+            .iter()
+            .any(|other| !selects_the_same(first, other))
+            || (fields
+                .iter()
+                .any(|f| !f.selection_set.selections.is_empty())
+                && may_conflict_among(
+                    &fields.iter().map(|f| &f.selection_set).collect::<Vec<_>>(),
+                    block,
+                    fragments,
+                    depth + 1,
+                ))
+    })
+}
+
+fn selects_the_same(a: &Field, b: &Field) -> bool {
+    a.name == b.name
+        && a.arguments == b.arguments
+        && a.directives == b.directives
+        && a.definition.ty == b.definition.ty
 }
 
 /// Every fragment the selection set reaches through spreads, directly or
@@ -201,4 +282,106 @@ fn spread_closure_of(
 
 fn span(location: Option<SourceSpan>) -> Option<Range<usize>> {
     location.map(|l| l.offset()..l.end_offset())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SCHEMA: &str = "
+        type Query { feed: [Entry] entry(id: ID!): Entry viewer: Author }
+        union Entry = Article | Video
+        type Author { id: ID! name: String friend: Author }
+        type Article { id: ID! author: Author! title: String }
+        type Video { id: ID! author: Author title: String }
+    ";
+
+    /// `fragments` stand for a project's fragments from other files.
+    fn check(document: &str, fragments: &str) -> (bool, bool) {
+        let schema = Schema::parse_and_validate(SCHEMA, "schema.graphql").unwrap();
+        let resolved = ExecutableDocument::parse(&schema, fragments, "fragments.graphql")
+            .unwrap_or_else(|e| e.partial);
+        let fragments: HashMap<Arc<str>, Node<Fragment>> = resolved
+            .fragments
+            .iter()
+            .map(|(name, f)| (Arc::from(name.as_str()), f.clone()))
+            .collect();
+        let block = ExecutableDocument::parse(&schema, document, "block.graphql")
+            .unwrap_or_else(|e| e.partial);
+        let operation = block.operations.iter().next().unwrap();
+
+        let mut whole = block.clone();
+        for fragment in fragments.values() {
+            whole
+                .fragments
+                .insert(fragment.name.clone(), fragment.clone());
+        }
+        let apollo_finds = whole.validate(&schema).is_err_and(|e| {
+            e.errors
+                .iter()
+                .any(|d| apollo_messages::is_field_merging(&d.to_string()))
+        });
+        let found = !conflicts(&schema, &block, &fragments, &resolved.sources).is_empty();
+        assert_eq!(found, apollo_finds, "conflicts() disagrees with apollo");
+
+        (
+            may_conflict(&operation.selection_set, &block, &fragments),
+            found,
+        )
+    }
+
+    #[test]
+    fn identical_selections_under_a_shared_key_are_not_handed_to_apollo() {
+        let doc = "query Q { feed { ... on Article { id title } ... on Video { id title } } }";
+        assert_eq!(check(doc, ""), (false, false));
+    }
+
+    #[test]
+    fn a_nullability_difference_is_handed_to_apollo() {
+        let doc =
+            "query Q { feed { ... on Article { author { id } } ... on Video { author { id } } } }";
+        assert_eq!(check(doc, ""), (true, true));
+    }
+
+    #[test]
+    fn differing_arguments_are_handed_to_apollo() {
+        let doc =
+            r#"query Q { a: entry(id: "1") { __typename } a: entry(id: "2") { __typename } }"#;
+        assert_eq!(check(doc, ""), (true, true));
+    }
+
+    #[test]
+    fn an_alias_onto_another_field_is_handed_to_apollo() {
+        let doc = "query Q { viewer { name: id name } }";
+        assert_eq!(check(doc, ""), (true, true));
+    }
+
+    #[test]
+    fn a_conflict_below_identical_fields_is_handed_to_apollo() {
+        let doc = "query Q { viewer { friend { name } } viewer { friend { name: id } } }";
+        assert_eq!(check(doc, ""), (true, true));
+    }
+
+    #[test]
+    fn a_conflict_reached_through_a_fragment_from_another_file_is_handed_to_apollo() {
+        let doc = "query Q { feed { ...EntryAuthor } }";
+        let fragments = "fragment EntryAuthor on Entry {
+            ... on Article { author { id } }
+            ... on Video { author { id } }
+        }";
+        assert_eq!(check(doc, fragments), (true, true));
+    }
+
+    #[test]
+    fn a_spread_of_an_unknown_fragment_is_handed_to_apollo() {
+        let schema = Schema::parse_and_validate(SCHEMA, "schema.graphql").unwrap();
+        let block = ExecutableDocument::parse(&schema, "query Q { viewer { ...Missing } }", "b")
+            .unwrap_or_else(|e| e.partial);
+        let operation = block.operations.iter().next().unwrap();
+        assert!(may_conflict(
+            &operation.selection_set,
+            &block,
+            &HashMap::default()
+        ));
+    }
 }

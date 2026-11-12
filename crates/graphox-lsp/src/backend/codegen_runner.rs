@@ -313,6 +313,7 @@ pub fn collect_codegen_metadata(
                 continue;
             };
 
+            let masked_ast = Arc::new(std::sync::OnceLock::new());
             for frag in doc.fragments() {
                 global_metadata.push(graphox_core::engine::FragmentMetadata {
                     name: frag.name.clone(),
@@ -322,6 +323,7 @@ pub fn collect_codegen_metadata(
                     is_public: frag.is_public,
                     is_type_only: frag.is_type_only,
                     masked_source: Some(doc.masked_source.clone()),
+                    masked_ast: masked_ast.clone(),
                     direct_deps: frag.used_fragments.clone(),
                     transitive_deps: Arc::from([]),
                     type_fields: frag.type_fields.clone(),

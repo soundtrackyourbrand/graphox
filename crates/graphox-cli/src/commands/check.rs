@@ -194,10 +194,15 @@ pub async fn run_check(
         }
     }
 
+    // Shared by the rules that follow spreads into fragments in other files.
+    let in_scope = vec![true; cfg.projects().len()];
+    let resolved_projects =
+        super::resolve_projects(&cfg, &workspace_metadata, &validated_schemas, &in_scope);
+
     if !run_field_arguments(
         &config,
+        &resolved_projects,
         &workspace_metadata,
-        &validated_schemas,
         scope.as_ref(),
         fail_on,
         &below_threshold,
@@ -208,8 +213,8 @@ pub async fn run_check(
 
     if !run_field_merging(
         &config,
+        &resolved_projects,
         &workspace_metadata,
-        &validated_schemas,
         scope.as_ref(),
         fail_on,
         &below_threshold,
@@ -407,8 +412,8 @@ async fn execute_project_check(
 /// rather than per document. Projects that declare no limits are skipped.
 fn run_field_arguments(
     config: &Config,
+    resolved_projects: &[super::ResolvedProject],
     workspace: &graphox_core::engine::WorkspaceMetadata,
-    validated_schemas: &HashMap<String, Result<ValidSchema, String>>,
     scope: Option<&super::PathScope>,
     fail_on: Severity,
     below_threshold: &std::sync::atomic::AtomicUsize,
@@ -419,20 +424,14 @@ fn run_field_arguments(
         .iter()
         .map(|project| config.rules_for_project(project))
         .collect();
-    let in_scope: Vec<bool> = rules_by_project
-        .iter()
-        .map(|rules| !rules.field_arguments().is_empty())
-        .collect();
-    if !in_scope.contains(&true) {
-        return true;
-    }
 
     let mut success = true;
-    for resolved in super::resolve_projects(config, workspace, validated_schemas, &in_scope) {
-        let Some(Ok(schema)) = validated_schemas.get(&resolved.schema_key) else {
-            continue;
-        };
+    for resolved in resolved_projects {
         let rules = rules_by_project[resolved.project_idx].field_arguments();
+        if rules.is_empty() {
+            continue;
+        }
+        let schema = &resolved.schema;
         warn_about_unknown_limits(
             rules,
             schema,
@@ -500,68 +499,82 @@ fn run_field_arguments(
 /// document.
 fn run_field_merging(
     config: &Config,
+    resolved_projects: &[super::ResolvedProject],
     workspace: &graphox_core::engine::WorkspaceMetadata,
-    validated_schemas: &HashMap<String, Result<ValidSchema, String>>,
     scope: Option<&super::PathScope>,
     fail_on: Severity,
     below_threshold: &std::sync::atomic::AtomicUsize,
     reporter: &dyn Reporter,
 ) -> bool {
-    let in_scope = vec![true; config.projects().len()];
     let mut success = true;
-    for resolved in super::resolve_projects(config, workspace, validated_schemas, &in_scope) {
-        let Some(Ok(schema)) = validated_schemas.get(&resolved.schema_key) else {
-            continue;
-        };
-        for path in &resolved.files {
-            if scope.is_some_and(|scope| !scope.contains(config, path)) {
-                continue;
-            }
-            let Some(doc) = workspace.documents.get(path) else {
-                continue;
-            };
-            for block in doc.get_graphql_trees() {
-                let offset = block.offset;
-                let root = block.tree.root_node();
-                let text = doc.get_node_text(root, offset);
-                // The parsed text starts where the tree's root does, which in
-                // a template literal can be after leading whitespace.
-                let text_start = offset + root.start_byte();
-                let masked = graphox_core::utils::mask_interpolations(&text);
-                let Ok((parsed, _)) = doc.get_executable_doc(schema, offset, &masked) else {
-                    continue;
-                };
-
-                for conflict in graphox_core::field_merging::conflicts(
-                    schema,
-                    &parsed,
-                    &resolved.context.all_fragments,
-                    &resolved.context.fragment_sources,
-                ) {
-                    let diagnostic = Diagnostic {
-                        range: Range {
-                            start: doc.byte_to_position(text_start + conflict.range.start),
-                            end: doc.byte_to_position(text_start + conflict.range.end),
-                        },
-                        severity: Some(DiagnosticSeverity::ERROR),
-                        message: format!("Apollo Validation Error: {}", conflict.report),
-                        code: Some(NumberOrString::String("field_merging".to_string())),
-                        source: graphox_core::utils::DIAGNOSTIC_SOURCE.map(String::from),
-                        ..Default::default()
-                    };
-
-                    if fail_on.is_met_by(diagnostic.severity) {
-                        success = false;
-                    } else {
-                        below_threshold.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    reporter.report_diagnostic(&config.relativize(path), &diagnostic, false);
+    for resolved in resolved_projects {
+        let schema = &resolved.schema;
+        // Collected in parallel and reported in file order, so the output does
+        // not depend on scheduling.
+        let found: Vec<(&PathBuf, Vec<Diagnostic>)> = resolved
+            .files
+            .par_iter()
+            .filter(|path| scope.is_none_or(|scope| scope.contains(config, path)))
+            .filter_map(|path| {
+                let doc = workspace.documents.get(path)?;
+                let diagnostics = field_merging_diagnostics(doc, schema, &resolved.context);
+                (!diagnostics.is_empty()).then_some((path, diagnostics))
+            })
+            .collect();
+        for (path, diagnostics) in found {
+            for diagnostic in diagnostics {
+                if fail_on.is_met_by(diagnostic.severity) {
+                    success = false;
+                } else {
+                    below_threshold.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 }
+                reporter.report_diagnostic(&config.relativize(path), &diagnostic, false);
             }
         }
     }
 
     success
+}
+
+/// One document's field merging conflicts, as diagnostics.
+fn field_merging_diagnostics(
+    doc: &DocumentState,
+    schema: &ValidSchema,
+    context: &graphox_core::engine::ProjectContext,
+) -> Vec<Diagnostic> {
+    let mut diagnostics = Vec::new();
+    for block in doc.get_graphql_trees() {
+        let offset = block.offset;
+        let root = block.tree.root_node();
+        let text = doc.get_node_text(root, offset);
+        // The parsed text starts where the tree's root does, which in
+        // a template literal can be after leading whitespace.
+        let text_start = offset + root.start_byte();
+        let masked = graphox_core::utils::mask_interpolations(&text);
+        let Ok((parsed, _)) = doc.get_executable_doc(schema, offset, &masked) else {
+            continue;
+        };
+
+        for conflict in graphox_core::field_merging::conflicts(
+            schema,
+            &parsed,
+            &context.all_fragments,
+            &context.fragment_sources,
+        ) {
+            diagnostics.push(Diagnostic {
+                range: Range {
+                    start: doc.byte_to_position(text_start + conflict.range.start),
+                    end: doc.byte_to_position(text_start + conflict.range.end),
+                },
+                severity: Some(DiagnosticSeverity::ERROR),
+                message: format!("Apollo Validation Error: {}", conflict.report),
+                code: Some(NumberOrString::String("field_merging".to_string())),
+                source: graphox_core::utils::DIAGNOSTIC_SOURCE.map(String::from),
+                ..Default::default()
+            });
+        }
+    }
+    diagnostics
 }
 
 /// A limit on a field or argument the schema does not have can never match,

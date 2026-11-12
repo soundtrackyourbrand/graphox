@@ -18,6 +18,10 @@ pub struct FragmentMetadata {
     pub is_public: bool,
     pub is_type_only: bool,
     pub masked_source: Option<Arc<str>>,
+    /// `masked_source` parsed under `path`, on first use. Shared by every
+    /// fragment of the file, so projects that resolve the same file parse it
+    /// once.
+    pub masked_ast: Arc<std::sync::OnceLock<apollo_compiler::ast::Document>>,
     /// Direct fragment dependencies (extracted during document parsing)
     /// Contains fragment names that this fragment directly spreads
     pub direct_deps: Arc<[Arc<str>]>,
@@ -547,6 +551,7 @@ impl Engine {
                             }
 
                             if !reused {
+                                let masked_ast = Arc::new(std::sync::OnceLock::new());
                                 for frag in doc.fragments() {
                                     fragments.push(FragmentMetadata {
                                         name: frag.name.clone(),
@@ -556,6 +561,7 @@ impl Engine {
                                         is_public: frag.is_public,
                                         is_type_only: frag.is_type_only,
                                         masked_source: Some(doc.masked_source.clone()),
+                                        masked_ast: masked_ast.clone(),
                                         direct_deps: frag.used_fragments.clone(),
                                         transitive_deps: Arc::from([]),
                                         type_fields: frag.type_fields.clone(),
@@ -709,10 +715,12 @@ impl Engine {
                     // the sources of all files before it, which the builder then
                     // copies, quadratic in the number of files. Only duplicate
                     // fragments matter here, and the builder reports those.
-                    let ast = parser
-                        .parse_ast(source.as_ref(), frag.path.as_ref())
-                        .unwrap_or_else(|with_errors| with_errors.partial);
-                    builder.add_ast_document(&ast, true);
+                    let ast = frag.masked_ast.get_or_init(|| {
+                        parser
+                            .parse_ast(source.as_ref(), frag.path.as_ref())
+                            .unwrap_or_else(|with_errors| with_errors.partial)
+                    });
+                    builder.add_ast_document(ast, true);
                 }
             }
         }
@@ -993,6 +1001,7 @@ mod tests {
                 import_alias: None,
                 is_public: true,
                 is_type_only: false,
+                masked_ast: Default::default(),
                 masked_source: Some(Arc::from("fragment UserFields on User { id }")),
                 direct_deps: Arc::from([]),
                 transitive_deps: Arc::from([]),
@@ -1005,6 +1014,7 @@ mod tests {
                 import_alias: None,
                 is_public: true,
                 is_type_only: false,
+                masked_ast: Default::default(),
                 masked_source: Some(Arc::from("fragment UserFields on User { name }")),
                 direct_deps: Arc::from([]),
                 transitive_deps: Arc::from([]),
@@ -1038,6 +1048,7 @@ mod tests {
                 import_alias: None,
                 is_public: true,
                 is_type_only: false,
+                masked_ast: Default::default(),
                 masked_source: Some(Arc::from(
                     "fragment UserFields on User { id }\nquery GetUser { user { ...UserFields } }",
                 )),
@@ -1052,6 +1063,7 @@ mod tests {
                 import_alias: None,
                 is_public: true,
                 is_type_only: false,
+                masked_ast: Default::default(),
                 masked_source: Some(Arc::from(
                     "fragment UserName on User { name }\nquery GetUser { user { ...UserName } }",
                 )),
