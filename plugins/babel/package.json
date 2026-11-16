@@ -1,6 +1,6 @@
 {
   "name": "@graphox/babel-plugin",
-  "version": "1.5.1",
+  "version": "1.5.2",
   "description": "Babel plugin for Graphox codesplitting",
   "main": "index.js",
   "types": "index.d.ts",
