@@ -600,8 +600,9 @@ pub fn generate_typescript_with_profile(
             // as data: `generate_ast_for_fragments`, or masking's `__fragment`
             // carrier. Otherwise it is types alone, and this is zero.
             let export_bytes = doc_export.len();
+            let has_document = !doc_export.is_empty();
 
-            if !doc_export.is_empty() {
+            if has_document {
                 document_asts.push(DocumentAstInfo {
                     raw_name: raw_name.to_string(),
                     document_name: fragment_document_name.clone(),
@@ -615,7 +616,7 @@ pub fn generate_typescript_with_profile(
                 crate::facts::fragment_facts(
                     frag,
                     &block_text,
-                    &fragment_document_name,
+                    has_document.then_some(fragment_document_name.as_str()),
                     &crate::facts::FragmentScope {
                         project: ctx.all_fragments,
                         document: &exec_doc.fragments,
@@ -627,6 +628,7 @@ pub fn generate_typescript_with_profile(
                 fragment_type_name,
                 source_text: block_text.clone(),
                 document_name: fragment_document_name,
+                has_document,
                 codegen_path: ctx.current_file_path.to_path_buf(),
                 generated_bytes: type_bytes + export_bytes,
                 ast_bytes: export_bytes,

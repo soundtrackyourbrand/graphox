@@ -95,6 +95,10 @@ pub fn generate_entrypoint_content(
 ) -> String {
     let emit_extensions = codegen_config.emit_extensions();
     let generate_ast_for_fragments = codegen_config.generate_ast_for_fragments();
+    // A `@type_only` fragment has no document even with fragment ASTs on, so
+    // it is typed and returned like a fragment with ASTs off.
+    let imports_document =
+        |frag: &FragmentGenerated| generate_ast_for_fragments && frag.has_document;
     let graphql_tag_fallback = codegen_config.graphql_tag_fallback();
     let op_count = operations.len();
     let frag_count = fragments.len();
@@ -199,7 +203,7 @@ pub fn generate_entrypoint_content(
         };
         let final_path = format!("{}{}", path_no_ext, ext);
 
-        if generate_ast_for_fragments {
+        if imports_document(frag) {
             runtime_import_lines.push(format!(
                 "import {{ {} }} from \"{}\";",
                 frag.document_name, final_path
@@ -213,7 +217,7 @@ pub fn generate_entrypoint_content(
     }
 
     for frag in &graphql_overloads.fragments {
-        if generate_ast_for_fragments {
+        if imports_document(frag) {
             overloads.push_str(&format!(
                 "export function graphql(source: {:?}): typeof {};\n",
                 frag.source_text, frag.document_name
@@ -384,7 +388,7 @@ pub fn generate_entrypoint_content(
             let mut docs = Vec::new();
             for frag in frags {
                 types.push(frag.fragment_type_name.clone());
-                if generate_ast_for_fragments {
+                if imports_document(frag) {
                     docs.push(frag.document_name.clone());
                 }
             }

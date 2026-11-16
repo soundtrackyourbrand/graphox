@@ -1,4 +1,3 @@
-use graphox_core::config::CodegenConfig;
 use std::path::Path;
 
 use crate::context::{FragmentGenerated, OperationGenerated};
@@ -17,11 +16,7 @@ pub fn generate_manifest_content(
     output_dir: &Path,
     operations: &[OperationGenerated],
     fragments: &[FragmentGenerated],
-    codegen_config: &CodegenConfig,
 ) -> String {
-    let fragments_have_documents = codegen_config.generate_ast_for_fragments()
-        || codegen_config.fragment_masking_mode().is_enabled();
-
     let entries: Vec<_> = operations
         .iter()
         .map(|op| {
@@ -35,7 +30,7 @@ pub fn generate_manifest_content(
         .chain(
             fragments
                 .iter()
-                .filter(|_| fragments_have_documents)
+                .filter(|frag| frag.has_document)
                 .map(|frag| {
                     entry(
                         output_dir,
@@ -56,10 +51,9 @@ pub fn write_manifest(
     output_dir: &Path,
     operations: &[OperationGenerated],
     fragments: &[FragmentGenerated],
-    codegen_config: &CodegenConfig,
 ) -> std::io::Result<()> {
     let path = output_dir.join(MANIFEST_FILE_NAME);
-    let content = generate_manifest_content(output_dir, operations, fragments, codegen_config);
+    let content = generate_manifest_content(output_dir, operations, fragments);
     if std::fs::read_to_string(&path).is_ok_and(|existing| existing == content) {
         return Ok(());
     }
@@ -104,12 +98,18 @@ mod tests {
         }
     }
 
-    fn fragment(source: &str, path: &str, document_name: &str) -> FragmentGenerated {
+    fn fragment(
+        source: &str,
+        path: &str,
+        document_name: &str,
+        has_document: bool,
+    ) -> FragmentGenerated {
         FragmentGenerated {
             name: String::new(),
             fragment_type_name: String::new(),
             source_text: source.to_string(),
             document_name: document_name.to_string(),
+            has_document,
             codegen_path: PathBuf::from(path),
             generated_bytes: 0,
             ast_bytes: 0,
@@ -127,7 +127,6 @@ mod tests {
                 "ADocument",
             )],
             &[],
-            &CodegenConfig::default(),
         );
 
         assert_eq!(
@@ -148,7 +147,6 @@ mod tests {
             Path::new("/repo/__generated__"),
             &[operation("query A { a }", "/repo/__generated__/a.ts", "A")],
             &[],
-            &CodegenConfig::default(),
         );
 
         assert!(content.contains(r#""path": "./a""#), "{content}");
@@ -156,22 +154,22 @@ mod tests {
 
     #[test]
     fn fragments_are_listed_only_when_they_have_documents() {
-        let frags = [fragment("fragment F on A { a }", "/repo/f.codegen.ts", "F")];
+        let frags = [
+            fragment("fragment F on A { a }", "/repo/f.codegen.ts", "F", true),
+            fragment(
+                "fragment T on A @type_only { a }",
+                "/repo/t.codegen.ts",
+                "T",
+                false,
+            ),
+        ];
 
-        let without =
-            generate_manifest_content(Path::new("/repo"), &[], &frags, &CodegenConfig::default());
-        assert_eq!(without, "[]");
-
-        let with = generate_manifest_content(
-            Path::new("/repo"),
-            &[],
-            &frags,
-            &CodegenConfig::default().with_generate_ast_for_fragments(true),
-        );
+        let content = generate_manifest_content(Path::new("/repo"), &[], &frags);
         assert!(
-            with.contains(r#""source": "fragment F on A { a }""#),
-            "{with}"
+            content.contains(r#""source": "fragment F on A { a }""#),
+            "{content}"
         );
+        assert!(!content.contains("fragment T"), "{content}");
     }
 
     #[test]
@@ -179,13 +177,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let dir = dir.path();
         let ops = [operation("query A { a }", "/repo/a.ts", "A")];
-        let config = CodegenConfig::default();
 
-        write_manifest(dir, &ops, &[], &config).unwrap();
+        write_manifest(dir, &ops, &[]).unwrap();
         let path = dir.join(MANIFEST_FILE_NAME);
         let first = std::fs::metadata(&path).unwrap().modified().unwrap();
         std::thread::sleep(std::time::Duration::from_millis(20));
-        write_manifest(dir, &ops, &[], &config).unwrap();
+        write_manifest(dir, &ops, &[]).unwrap();
         let second = std::fs::metadata(&path).unwrap().modified().unwrap();
 
         assert_eq!(first, second);

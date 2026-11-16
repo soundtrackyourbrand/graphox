@@ -1036,6 +1036,24 @@ projects:
     let query_content = std::fs::read_to_string(&query_gen).unwrap();
     assert!(!query_content.contains("TypeOnlyFieldsDocument"));
 
+    // The entrypoint must not import a document the fragment module does not
+    // export; `graphql()` types the fragment as with fragment ASTs off.
+    let entrypoint = std::fs::read_to_string(temp_dir.join("gen/graphql.ts")).unwrap();
+    assert!(
+        !entrypoint.contains("TypeOnlyFieldsDocument"),
+        "{entrypoint}"
+    );
+    assert!(
+        entrypoint.contains("import type { TypeOnlyFields }"),
+        "{entrypoint}"
+    );
+    assert!(
+        entrypoint.contains("DocumentNode<TypeOnlyFields, unknown>"),
+        "{entrypoint}"
+    );
+    let manifest = std::fs::read_to_string(temp_dir.join("gen/manifest.json")).unwrap();
+    assert!(!manifest.contains("TypeOnlyFieldsDocument"), "{manifest}");
+
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();
 }

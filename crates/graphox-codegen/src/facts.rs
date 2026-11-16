@@ -24,7 +24,7 @@ pub const FACTS_FILE_NAME: &str = "graphql-facts.json";
 
 /// The version of the format, written at the top of the file. It changes when
 /// a reader of the previous version could misread the new one.
-pub const FACTS_VERSION: u32 = 1;
+pub const FACTS_VERSION: u32 = 2;
 
 /// Fragments a spread can resolve to: the project's, then the document's own.
 pub struct FragmentScope<'a> {
@@ -84,19 +84,24 @@ pub fn operation_facts(
 }
 
 /// The facts of one fragment. `returned` is added as for an operation.
+///
+/// `document_name` is `None` when the fragment has no document export, and
+/// the entry then has no `document`.
 pub fn fragment_facts(
     fragment: &Fragment,
     source: &str,
-    document_name: &str,
+    document_name: Option<&str>,
     fragments: &FragmentScope,
 ) -> Json {
     let mut entry = json!({
         "kind": "fragment",
         "name": fragment.name.as_str(),
-        "document": document_name,
         "source": source,
         "type": fragment.selection_set.ty.as_str(),
     });
+    if let Some(document_name) = document_name {
+        put(&mut entry, "document", document_name);
+    }
     insert_directives(&mut entry, &fragment.directives);
     let mut expanding = vec![fragment.name.as_str().to_string()];
     put(

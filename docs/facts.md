@@ -30,9 +30,10 @@ every definition written in one block shares it.
 definition it is: the block's first operation by type name, or, in a block of
 fragments alone, its first fragment by name. Its other definitions still have
 entries of their own, with `returned: false`. `document` names each
-definition's export. A fragment's document is only exported when codegen generates
-documents for fragments (`generate_ast_for_fragments` or fragment masking);
-otherwise `graphql()` gives a block of fragments its type alone.
+definition's export, and is absent when there is none. A fragment's document
+is exported when fragment masking is on, or when `generate_ast_for_fragments`
+is on and the fragment is not `@type_only`; otherwise `graphql()` gives a
+block of fragments its type alone.
 
 ## Format
 
@@ -43,7 +44,7 @@ the directory's project. `definitions` lists the operations, then the
 fragments, one definition per line. Keys within an object are sorted.
 
 ```json
-{"version":1,"limits":[…],"definitions":[
+{"version":2,"limits":[…],"definitions":[
 {"document":"PageQueryDocument","kind":"query","name":"Page","returned":true,"selections":[…],"source":"…","type":"Query","variables":[…]},
 {"document":"RowDocument","kind":"fragment","name":"Row","returned":true,"selections":[…],"source":"…","type":"Track"}
 ]}
@@ -76,7 +77,7 @@ warns when they differ.
 |-----|---------|
 | `kind` | `query`, `mutation`, `subscription` or `fragment` |
 | `name` | The definition's name; `null` for an anonymous operation |
-| `document` | The name of its document export |
+| `document` | The name of its document export; absent when it has none |
 | `returned` | Whether `graphql()` returns this definition for its block |
 | `source` | The source text of the block it was written in |
 | `type` | The root type of an operation, or a fragment's type condition |
