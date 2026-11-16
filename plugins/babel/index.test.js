@@ -37,6 +37,19 @@ describe('@graphox/babel-plugin', () => {
     expect(output).not.toContain('from "./gen/graphql"');
   });
 
+  it('turns the call of a fragment without a document into an empty object', () => {
+    const options = {
+      manifestData: [{ source: 'fragment Shape on User @type_only { id }' }],
+      outputDir: './gen',
+    };
+    const code =
+      "import { graphql } from './gen/graphql'; const Shape = graphql(`fragment Shape on User @type_only { id }`);";
+    const output = transform(code, options);
+
+    expect(output).toContain('const Shape = {};');
+    expect(output).not.toContain('import');
+  });
+
   it('transforms multiple calls', () => {
     const manifest = [
       {

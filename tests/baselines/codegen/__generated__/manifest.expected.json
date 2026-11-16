@@ -28,5 +28,14 @@
     "name": "GetUsersWithFragmentQueryDocument",
     "path": "./fragment_usage.codegen",
     "source": "query GetUsersWithFragment {\n  users {\n    ...UserFields\n    email\n  }\n}\n"
+  },
+  {
+    "source": "fragment AccountInfo on Account {\n  __typename\n  ... on User {\n    username\n  }\n  ... on Admin {\n    role\n  }\n}\n"
+  },
+  {
+    "source": "fragment UserFields on User @public {\n  id\n  username\n}\n\nfragment InternalFields on User {\n  email\n}\n"
+  },
+  {
+    "source": "fragment UserFields on User @public {\n  id\n  username\n}\n\nfragment InternalFields on User {\n  email\n}\n"
   }
 ]

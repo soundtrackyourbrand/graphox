@@ -1,1 +1,8 @@
-[]
+[
+  {
+    "source": "fragment PublicFrag on User @public { id }\nfragment PrivateFrag on User { id }\n"
+  },
+  {
+    "source": "fragment PublicFrag on User @public { id }\nfragment PrivateFrag on User { id }\n"
+  }
+]

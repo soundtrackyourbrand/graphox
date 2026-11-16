@@ -7,8 +7,9 @@ pub const MANIFEST_FILE_NAME: &str = "manifest.json";
 /// The `manifest.json` of an output directory: one entry per definition the
 /// build-tool plugins can rewrite, giving its source text, its document's
 /// export name and the generated module that exports it, relative to the
-/// directory and without its extension. Fragments are listed only when a
-/// document is generated for them.
+/// directory and without its extension. A fragment without a document, such
+/// as a `@type_only` one, is listed with its source text alone, and the
+/// plugins turn its `graphql()` call into `{}`, as `graphql.ts` does.
 ///
 /// The CLI and the language server both write it, so it is built here once
 /// and both write the same bytes.
@@ -27,19 +28,18 @@ pub fn generate_manifest_content(
                 &op.document_name,
             )
         })
-        .chain(
-            fragments
-                .iter()
-                .filter(|frag| frag.has_document)
-                .map(|frag| {
-                    entry(
-                        output_dir,
-                        &frag.source_text,
-                        &frag.codegen_path,
-                        &frag.document_name,
-                    )
-                }),
-        )
+        .chain(fragments.iter().map(|frag| {
+            if frag.has_document {
+                entry(
+                    output_dir,
+                    &frag.source_text,
+                    &frag.codegen_path,
+                    &frag.document_name,
+                )
+            } else {
+                sonic_rs::json!({ "source": frag.source_text })
+            }
+        }))
         .collect();
 
     sonic_rs::to_string_pretty(&entries).expect("manifest entries serialize")
@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn fragments_are_listed_only_when_they_have_documents() {
+    fn a_fragment_without_a_document_is_listed_by_its_source_alone() {
         let frags = [
             fragment("fragment F on A { a }", "/repo/f.codegen.ts", "F", true),
             fragment(
@@ -169,7 +169,15 @@ mod tests {
             content.contains(r#""source": "fragment F on A { a }""#),
             "{content}"
         );
-        assert!(!content.contains("fragment T"), "{content}");
+        assert!(
+            content.contains(
+                r#"{
+    "source": "fragment T on A @type_only { a }"
+  }"#
+            ),
+            "{content}"
+        );
+        assert!(!content.contains(r#""name": "T""#), "{content}");
     }
 
     #[test]

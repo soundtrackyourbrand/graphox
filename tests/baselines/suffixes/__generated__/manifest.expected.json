@@ -3,5 +3,8 @@
     "name": "GetUserQueryGQL",
     "path": "./query.codegen",
     "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n    email\n  }\n}\n"
+  },
+  {
+    "source": "fragment UserFields on User @public {\n  id\n  name\n}\n"
   }
 ]

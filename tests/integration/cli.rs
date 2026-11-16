@@ -1053,6 +1053,12 @@ projects:
     );
     let manifest = std::fs::read_to_string(temp_dir.join("gen/manifest.json")).unwrap();
     assert!(!manifest.contains("TypeOnlyFieldsDocument"), "{manifest}");
+    // Listed by its source alone, so the build plugins can turn its
+    // `graphql()` call into `{}` instead of failing to find it.
+    assert!(
+        manifest.contains("fragment TypeOnlyFields on User @type_only"),
+        "{manifest}"
+    );
 
     // Cleanup
     std::fs::remove_dir_all(temp_dir).ok();

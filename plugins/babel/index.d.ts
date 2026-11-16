@@ -7,10 +7,14 @@ export type EmitExtensions = 'none' | 'ts' | 'dts' | 'js';
 export interface ManifestEntry {
   /** The raw GraphQL source (query, mutation, subscription, or fragment) */
   source: string;
-  /** The relative path to the generated codegen file (without extension) */
-  path: string;
+  /**
+   * The relative path to the generated codegen file (without extension).
+   * Absent, with `name`, for a fragment that has no document, such as a
+   * `@type_only` one: its `graphql()` call becomes `{}`.
+   */
+  path?: string;
   /** The exported name of the document in the codegen file */
-  name: string;
+  name?: string;
 }
 
 /**

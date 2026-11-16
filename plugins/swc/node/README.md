@@ -226,6 +226,8 @@ Controls the file extension appended to generated import paths. Should match the
 
 When `generate_ast_for_fragments: true` is enabled in your config, fragment documents are also included in the manifest and will be properly rewritten by the plugin.
 
+A fragment without a document, such as a `@type_only` one, is listed in the manifest by its source alone. The plugin replaces its `graphql()` call with `{}`, the value `graphql.ts` returns for it, so `ResultOf<typeof Doc>` still types it.
+
 ## Building from Source
 
 If you need to rebuild the WASM plugin:
