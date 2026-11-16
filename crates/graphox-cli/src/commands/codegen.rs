@@ -759,7 +759,12 @@ async fn execute_codegen(
                         return Err(());
                     }
 
-                    if let Err(e) = codegen::manifest::write_manifest(&out_dir_path, &ops, &frags) {
+                    if let Err(e) = codegen::manifest::write_manifest(
+                        &out_dir_path,
+                        &ops,
+                        &frags,
+                        &codegen_config,
+                    ) {
                         eprintln!(
                             "{}: {} (manifest: {}, dir exists: {})",
                             "Failed to write manifest".red(),
