@@ -15,6 +15,8 @@ pub const MANIFEST_FILE_NAME: &str = "manifest.json";
 /// With `graphql_tag_fallback`, `graphql.ts` parses such a fragment at runtime
 /// instead, which the plugins cannot do. It is left out, so the plugins fail
 /// the build on its call rather than hand code a document without definitions.
+/// A `@type_only` fragment is still listed: `graphql.ts` gives it `{}` either
+/// way.
 ///
 /// The CLI and the language server both write it, so it is built here once
 /// and both write the same bytes.
@@ -43,7 +45,7 @@ pub fn generate_manifest_content(
                     &frag.codegen_path,
                     &frag.document_name,
                 )
-            } else if list_documentless {
+            } else if list_documentless || frag.is_type_only {
                 sonic_rs::json!({ "source": frag.source_text })
             } else {
                 return None;
@@ -114,12 +116,14 @@ mod tests {
         document_name: &str,
         has_document: bool,
     ) -> FragmentGenerated {
+        let is_type_only = source.contains("@type_only");
         FragmentGenerated {
             name: String::new(),
             fragment_type_name: String::new(),
             source_text: source.to_string(),
             document_name: document_name.to_string(),
             has_document,
+            is_type_only,
             codegen_path: PathBuf::from(path),
             generated_bytes: 0,
             ast_bytes: 0,
@@ -194,10 +198,16 @@ mod tests {
     }
 
     #[test]
-    fn with_graphql_tag_fallback_a_fragment_without_a_document_is_left_out() {
+    fn with_graphql_tag_fallback_only_a_type_only_fragment_is_listed_without_a_document() {
         let frags = [
             fragment("fragment F on A { a }", "/repo/f.codegen.ts", "F", true),
             fragment("fragment G on A { a }", "/repo/g.codegen.ts", "G", false),
+            fragment(
+                "fragment T on A @type_only { a }",
+                "/repo/t.codegen.ts",
+                "T",
+                false,
+            ),
         ];
 
         let content = generate_manifest_content(
@@ -208,6 +218,11 @@ mod tests {
         );
         assert!(content.contains(r#""name": "F""#), "{content}");
         assert!(!content.contains("fragment G"), "{content}");
+        // `@type_only` has no runtime value to parse, so it is listed anyway.
+        assert!(
+            content.contains(r#""source": "fragment T on A @type_only { a }""#),
+            "{content}"
+        );
     }
 
     #[test]

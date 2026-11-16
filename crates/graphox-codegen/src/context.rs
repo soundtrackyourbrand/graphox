@@ -651,6 +651,9 @@ pub struct FragmentGenerated {
     /// exports one for every fragment, and fragment AST generation for every
     /// fragment that is not `@type_only`; any other fragment is types alone.
     pub has_document: bool,
+    /// Whether it is marked `@type_only`: it never has a runtime value, not
+    /// even one `graphql_tag_fallback` would parse.
+    pub is_type_only: bool,
     pub codegen_path: PathBuf,
     /// TypeScript this fragment contributed to its output file. Counted the same
     /// way as [`OperationGenerated::generated_bytes`].

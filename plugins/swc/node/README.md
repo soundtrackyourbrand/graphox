@@ -228,7 +228,7 @@ When `generate_ast_for_fragments: true` is enabled in your config, fragment docu
 
 A fragment without a document, such as a `@type_only` one, is listed in the manifest by its source alone. The plugin replaces its `graphql()` call with `{}`, the value `graphql.ts` returns for it, so `ResultOf<typeof Doc>` still types it.
 
-With `graphql_tag_fallback: true`, `graphql.ts` parses such a fragment at runtime instead, which the plugin cannot do. The fragment is then left out of the manifest, and the plugin fails the build on its `graphql()` call.
+With `graphql_tag_fallback: true`, `graphql.ts` parses a fragment without a document at runtime instead, which the plugin cannot do. Such a fragment is then left out of the manifest, and the plugin fails the build on its `graphql()` call. A `@type_only` fragment is the exception: it has no runtime value in either mode, so it is still listed and its call still becomes `{}`.
 
 ## Building from Source
 

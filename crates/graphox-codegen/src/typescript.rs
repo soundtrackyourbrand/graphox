@@ -629,6 +629,7 @@ pub fn generate_typescript_with_profile(
                 source_text: block_text.clone(),
                 document_name: fragment_document_name,
                 has_document,
+                is_type_only,
                 codegen_path: ctx.current_file_path.to_path_buf(),
                 generated_bytes: type_bytes + export_bytes,
                 ast_bytes: export_bytes,
