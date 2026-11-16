@@ -92,8 +92,14 @@ pub struct Config {
 #[derive(Clone, Debug, Deserialize, Serialize)]
 pub struct ManifestEntry {
     pub source: String,
-    pub path: String,
-    pub name: String,
+    /// The generated module exporting the document, and the document's export
+    /// name. Both are absent for a fragment that has no document, such as a
+    /// `@type_only` one: its `graphql()` call becomes `{}`, the value
+    /// `graphql.ts` gives it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
 }
 
 /// One `OutputConfig` with its manifest indexed for lookup.
@@ -104,8 +110,8 @@ struct ResolvedOutput {
     import_paths: Vec<String>,
     /// Normalized document source -> entry
     manifest: HashMap<String, ManifestEntry>,
-    /// Document name -> entry
-    name_to_entry: HashMap<String, ManifestEntry>,
+    /// Document name -> the generated module exporting it
+    name_to_path: HashMap<String, String>,
 }
 
 pub struct TransformVisitor {
@@ -322,12 +328,12 @@ impl TransformVisitor {
                 };
 
                 let mut manifest = HashMap::new();
-                let mut name_to_entry = HashMap::new();
+                let mut name_to_path = HashMap::new();
                 for entry in entries {
-                    manifest
-                        .entry(normalize(&entry.source))
-                        .or_insert_with(|| entry.clone());
-                    name_to_entry.insert(entry.name.clone(), entry);
+                    if let (Some(name), Some(path)) = (&entry.name, &entry.path) {
+                        name_to_path.insert(name.clone(), path.clone());
+                    }
+                    manifest.entry(normalize(&entry.source)).or_insert(entry);
                 }
 
                 ResolvedOutput {
@@ -339,7 +345,7 @@ impl TransformVisitor {
                         .map(|root| PathBuf::from(to_posix_path(root))),
                     import_paths: output.graphql_import_paths.clone().unwrap_or_default(),
                     manifest,
-                    name_to_entry,
+                    name_to_path,
                 }
             })
             .collect();
@@ -659,11 +665,11 @@ impl TransformVisitor {
                 ));
             }
 
-            let Some(entry) = self.outputs[output_idx].name_to_entry.get(orig_name) else {
+            let Some(entry_path) = self.outputs[output_idx].name_to_path.get(orig_name) else {
                 self.fail(self.unresolved_document_error(orig_name, source));
             };
 
-            let path = self.get_import_path(output_idx, &entry.path);
+            let path = self.get_import_path(output_idx, entry_path);
             if !by_path.contains_key(&path) {
                 order.push(path.clone());
             }
@@ -723,10 +729,10 @@ impl TransformVisitor {
             }
 
             let output_idx = self.resolve_graphql_path(source).unwrap_or(0);
-            let Some(entry) = self.outputs[output_idx].name_to_entry.get(&imported_name) else {
+            let Some(entry_path) = self.outputs[output_idx].name_to_path.get(&imported_name) else {
                 self.fail(self.unresolved_document_error(&imported_name, source));
             };
-            let path = entry.path.clone();
+            let path = entry_path.clone();
 
             requests.push(DynamicImportRequest {
                 imported_name,
@@ -898,16 +904,15 @@ impl VisitMut for TransformVisitor {
                                 if imported_name == "graphql" || imported_name == "gql" {
                                     self.graphql_ids.insert(named.local.to_id(), output_idx);
                                 } else if self.outputs[output_idx]
-                                    .name_to_entry
+                                    .name_to_path
                                     .contains_key(imported_name)
                                     && !specifier_is_type_only
                                 {
                                     // Only track non-type-only imports of document names
                                     let entry_path = self.outputs[output_idx]
-                                        .name_to_entry
+                                        .name_to_path
                                         .get(imported_name)
                                         .unwrap()
-                                        .path
                                         .clone();
                                     let rel_path = self.get_import_path(output_idx, &entry_path);
 
@@ -1185,8 +1190,14 @@ impl VisitMut for TransformVisitor {
                 ));
             };
 
-            let entry_name = entry.name.clone();
-            let entry_path = entry.path.clone();
+            let (Some(entry_name), Some(entry_path)) = (entry.name.clone(), entry.path.clone())
+            else {
+                *n = Expr::Object(ObjectLit {
+                    span: DUMMY_SP,
+                    props: vec![],
+                });
+                return;
+            };
             let rel_path = self.get_import_path(output_idx, &entry_path);
             let target_local_name = self.get_local_name(output_idx, &entry_name);
             self.new_imports
@@ -1311,8 +1322,8 @@ mod tests {
     fn test_visitor_basic() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1338,11 +1349,38 @@ mod tests {
     }
 
     #[test]
+    fn a_fragment_without_a_document_becomes_an_empty_object() {
+        let manifest: Vec<ManifestEntry> =
+            serde_json::from_str(r#"[{"source": "fragment Shape on User @type_only { id }"}]"#)
+                .unwrap();
+
+        let config = Config {
+            manifest_path: None,
+            manifest_data: Some(manifest),
+            output_dir: ".".to_string(),
+            graphql_import_paths: None,
+            emit_extensions: EmitExtensions::None,
+            import_alias: None,
+            outputs: None,
+            root: None,
+        };
+
+        let output = transform(
+            "import { graphql } from './graphql'; const Shape = graphql(`fragment Shape on User @type_only { id }`);",
+            config,
+            "test.ts",
+        );
+
+        assert!(output.contains("const Shape = {};"), "{output}");
+        assert!(!output.contains("import"), "{output}");
+    }
+
+    #[test]
     fn test_emit_extensions_ts() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1369,8 +1407,8 @@ mod tests {
     fn test_emit_extensions_js() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1397,8 +1435,8 @@ mod tests {
     fn test_emit_extensions_dts() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1426,13 +1464,13 @@ mod tests {
         let manifest = vec![
             ManifestEntry {
                 source: "query GetMe { me { id } }".to_string(),
-                path: "./me.codegen".to_string(),
-                name: "GetMeDocument".to_string(),
+                path: Some("./me.codegen".to_string()),
+                name: Some("GetMeDocument".to_string()),
             },
             ManifestEntry {
                 source: "query GetOther { other { id } }".to_string(),
-                path: "./other.codegen".to_string(),
-                name: "GetOtherDocument".to_string(),
+                path: Some("./other.codegen".to_string()),
+                name: Some("GetOtherDocument".to_string()),
             },
         ];
 
@@ -1467,8 +1505,8 @@ mod tests {
     fn test_visitor_rejects_unrewritable_value_imports() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1494,8 +1532,8 @@ mod tests {
     fn test_visitor_rejects_missing_manifest_entries() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1521,8 +1559,8 @@ mod tests {
     fn test_visitor_rejects_dynamic_graphql_calls() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1550,8 +1588,8 @@ mod tests {
     fn test_visitor_rejects_remaining_graphql_references() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1578,8 +1616,8 @@ mod tests {
     fn test_visitor_relative_paths() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./src/query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./src/query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         // Absolute paths for testing pathdiff
@@ -1609,8 +1647,8 @@ mod tests {
     fn test_visitor_relative_paths_with_extension() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./src/query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./src/query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1639,8 +1677,8 @@ mod tests {
     fn test_visitor_gql_tag() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1669,8 +1707,8 @@ mod tests {
     fn test_normalization() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1720,8 +1758,8 @@ mod tests {
     fn test_other_graphql_import() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1751,8 +1789,8 @@ mod tests {
     fn test_subpath_imports() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1781,8 +1819,8 @@ mod tests {
     fn test_does_not_transform_unrelated_aliases_containing_graphql() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1811,8 +1849,8 @@ mod tests {
     fn test_resolves_absolute_import_paths_against_output_dir() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1841,8 +1879,8 @@ mod tests {
     fn test_explicit_import_path() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -1902,8 +1940,8 @@ mod tests {
     fn test_rewrites_dynamic_import_destructuring_from_graphql_js() {
         let manifest = vec![ManifestEntry {
             source: "mutation CreateCart { createCart { id } }".to_string(),
-            path: "./CreateCartMutation.codegen".to_string(),
-            name: "CreateCartDocument".to_string(),
+            path: Some("./CreateCartMutation.codegen".to_string()),
+            name: Some("CreateCartDocument".to_string()),
         }];
 
         let config = Config {
@@ -1939,13 +1977,13 @@ mod tests {
         let manifest = vec![
             ManifestEntry {
                 source: "query GetUser { user { id } }".to_string(),
-                path: "./user.codegen".to_string(),
-                name: "GetUserDocument".to_string(),
+                path: Some("./user.codegen".to_string()),
+                name: Some("GetUserDocument".to_string()),
             },
             ManifestEntry {
                 source: "query GetPost { post { id } }".to_string(),
-                path: "./post.codegen".to_string(),
-                name: "GetPostDocument".to_string(),
+                path: Some("./post.codegen".to_string()),
+                name: Some("GetPostDocument".to_string()),
             },
         ];
 
@@ -1985,8 +2023,8 @@ mod tests {
     fn test_rejects_unsupported_dynamic_import_namespaces() {
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
-            path: "./user.codegen".to_string(),
-            name: "GetUserDocument".to_string(),
+            path: Some("./user.codegen".to_string()),
+            name: Some("GetUserDocument".to_string()),
         }];
 
         let config = Config {
@@ -2016,8 +2054,8 @@ mod tests {
     fn test_document_name_import_from_directory() {
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "GetUserQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("GetUserQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -2047,13 +2085,13 @@ mod tests {
         let manifest = vec![
             ManifestEntry {
                 source: "query GetUser { user { id } }".to_string(),
-                path: "./user.codegen".to_string(),
-                name: "GetUserQueryDocument".to_string(),
+                path: Some("./user.codegen".to_string()),
+                name: Some("GetUserQueryDocument".to_string()),
             },
             ManifestEntry {
                 source: "query GetPost { post { title } }".to_string(),
-                path: "./post.codegen".to_string(),
-                name: "GetPostQueryDocument".to_string(),
+                path: Some("./post.codegen".to_string()),
+                name: Some("GetPostQueryDocument".to_string()),
             },
         ];
 
@@ -2084,8 +2122,8 @@ mod tests {
     fn test_document_name_mixed_imports() {
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "GetUserQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("GetUserQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -2111,8 +2149,8 @@ mod tests {
         // Type-only imports are removed entirely since they don't exist in minified JS
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "GetUserQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("GetUserQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -2141,8 +2179,8 @@ mod tests {
     fn test_document_name_import_from_index() {
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "GetUserQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("GetUserQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -2171,8 +2209,8 @@ mod tests {
     fn test_document_name_with_type_specifier() {
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "GetUserQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("GetUserQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -2203,8 +2241,8 @@ mod tests {
     fn test_document_name_and_graphql_function() {
         let manifest = vec![ManifestEntry {
             source: "query GetUser { user { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "GetUserQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("GetUserQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -2233,8 +2271,8 @@ mod tests {
     fn test_visitor_graphql_import_from_index() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -2263,8 +2301,8 @@ mod tests {
     fn test_visitor_gql_import_from_index() {
         let manifest = vec![ManifestEntry {
             source: "query { me { id } }".to_string(),
-            path: "./query.codegen".to_string(),
-            name: "MyQueryDocument".to_string(),
+            path: Some("./query.codegen".to_string()),
+            name: Some("MyQueryDocument".to_string()),
         }];
 
         let config = Config {
@@ -2295,13 +2333,13 @@ mod tests {
         let manifest = vec![
             ManifestEntry {
                 source: "query GetUser { user { id } }".to_string(),
-                path: "./user.codegen".to_string(),
-                name: "GetUserQueryDocument".to_string(),
+                path: Some("./user.codegen".to_string()),
+                name: Some("GetUserQueryDocument".to_string()),
             },
             ManifestEntry {
                 source: "fragment UserFields on User { id name }".to_string(),
-                path: "./userFields.codegen".to_string(),
-                name: "UserFieldsFragmentDocument".to_string(),
+                path: Some("./userFields.codegen".to_string()),
+                name: Some("UserFieldsFragmentDocument".to_string()),
             },
         ];
 
@@ -2370,18 +2408,18 @@ mod tests {
         let manifest = vec![
             ManifestEntry {
                 source: source.to_string(),
-                path: "./music.codegen".to_string(),
-                name: "MusicRouteQueryQueryDocument".to_string(),
+                path: Some("./music.codegen".to_string()),
+                name: Some("MusicRouteQueryQueryDocument".to_string()),
             },
             ManifestEntry {
                 source: source.to_string(),
-                path: "./music.codegen".to_string(),
-                name: "Playlist_MusicRouteMetaFragmentDoc".to_string(),
+                path: Some("./music.codegen".to_string()),
+                name: Some("Playlist_MusicRouteMetaFragmentDoc".to_string()),
             },
             ManifestEntry {
                 source: source.to_string(),
-                path: "./music.codegen".to_string(),
-                name: "BrowseCategoriesFragmentDoc".to_string(),
+                path: Some("./music.codegen".to_string()),
+                name: Some("BrowseCategoriesFragmentDoc".to_string()),
             },
         ];
 
@@ -2428,13 +2466,13 @@ mod tests {
         let manifest = vec![
             ManifestEntry {
                 source: source.to_string(),
-                path: "./playlist.codegen".to_string(),
-                name: "PlaylistFieldsFragmentDoc".to_string(),
+                path: Some("./playlist.codegen".to_string()),
+                name: Some("PlaylistFieldsFragmentDoc".to_string()),
             },
             ManifestEntry {
                 source: source.to_string(),
-                path: "./playlist.codegen".to_string(),
-                name: "PlaylistPermissionsFragmentDoc".to_string(),
+                path: Some("./playlist.codegen".to_string()),
+                name: Some("PlaylistPermissionsFragmentDoc".to_string()),
             },
         ];
 
@@ -2469,8 +2507,8 @@ mod tests {
     fn test_collision() {
         let manifest = vec![ManifestEntry {
             source: "query q { me { id } }".to_string(),
-            path: "./q.codegen".to_string(),
-            name: "q".to_string(),
+            path: Some("./q.codegen".to_string()),
+            name: Some("q".to_string()),
         }];
 
         let config = Config {
@@ -2508,8 +2546,8 @@ mod tests {
                     package_root: Some("/repo/packages/catalog".to_string()),
                     manifest_data: Some(vec![ManifestEntry {
                         source: "fragment ProductCard on Product { id }".to_string(),
-                        path: "./catalog.codegen".to_string(),
-                        name: "ProductCardFragmentDoc".to_string(),
+                        path: Some("./catalog.codegen".to_string()),
+                        name: Some("ProductCardFragmentDoc".to_string()),
                     }]),
                     ..Default::default()
                 },
@@ -2519,8 +2557,8 @@ mod tests {
                     package_root: Some("/repo/packages/storefront".to_string()),
                     manifest_data: Some(vec![ManifestEntry {
                         source: "query Web { web { id } }".to_string(),
-                        path: "./storefront.codegen".to_string(),
-                        name: "WebQueryDocument".to_string(),
+                        path: Some("./storefront.codegen".to_string()),
+                        name: Some("WebQueryDocument".to_string()),
                     }]),
                     ..Default::default()
                 },
@@ -2649,13 +2687,13 @@ mod tests {
                     manifest_data: Some(vec![
                         ManifestEntry {
                             source: "mutation SetPrice { setPrice { id } }".to_string(),
-                            path: "./web.codegen".to_string(),
-                            name: "SetPriceMutationDocument".to_string(),
+                            path: Some("./web.codegen".to_string()),
+                            name: Some("SetPriceMutationDocument".to_string()),
                         },
                         ManifestEntry {
                             source: "mutation ArchiveItem { archiveItem { id } }".to_string(),
-                            path: "./web.codegen".to_string(),
-                            name: "ArchiveItemMutationDocument".to_string(),
+                            path: Some("./web.codegen".to_string()),
+                            name: Some("ArchiveItemMutationDocument".to_string()),
                         },
                     ]),
                     ..Default::default()
@@ -2667,14 +2705,14 @@ mod tests {
                     manifest_data: Some(vec![
                         ManifestEntry {
                             source: "mutation SetPrice { setPrice { id } }".to_string(),
-                            path: "./checkout.codegen".to_string(),
-                            name: "SetPriceMutationDocument".to_string(),
+                            path: Some("./checkout.codegen".to_string()),
+                            name: Some("SetPriceMutationDocument".to_string()),
                         },
                         ManifestEntry {
                             source: "mutation ArchiveItem { archiveItem(remote: true) { id } }"
                                 .to_string(),
-                            path: "./checkout.codegen".to_string(),
-                            name: "ArchiveItemMutationDocument".to_string(),
+                            path: Some("./checkout.codegen".to_string()),
+                            name: Some("ArchiveItemMutationDocument".to_string()),
                         },
                     ]),
                     ..Default::default()
@@ -2896,13 +2934,13 @@ mod tests {
         config.outputs.as_mut().unwrap()[0].manifest_data = Some(vec![
             ManifestEntry {
                 source: "fragment ProductCard on Product { id }".to_string(),
-                path: "./catalog.codegen".to_string(),
-                name: "ProductCardFragmentDoc".to_string(),
+                path: Some("./catalog.codegen".to_string()),
+                name: Some("ProductCardFragmentDoc".to_string()),
             },
             ManifestEntry {
                 source: "fragment Price on Product { price }".to_string(),
-                path: "./catalog.codegen".to_string(),
-                name: "PriceFragmentDoc".to_string(),
+                path: Some("./catalog.codegen".to_string()),
+                name: Some("PriceFragmentDoc".to_string()),
             },
         ]);
         config
@@ -2984,13 +3022,13 @@ mod tests {
             manifest_data: Some(vec![
                 ManifestEntry {
                     source: "query { me { id } }".to_string(),
-                    path: "./query.codegen".to_string(),
-                    name: "MyQueryDocument".to_string(),
+                    path: Some("./query.codegen".to_string()),
+                    name: Some("MyQueryDocument".to_string()),
                 },
                 ManifestEntry {
                     source: "fragment F on User { id }".to_string(),
-                    path: "./other.codegen".to_string(),
-                    name: "FFragmentDoc".to_string(),
+                    path: Some("./other.codegen".to_string()),
+                    name: Some("FFragmentDoc".to_string()),
                 },
             ]),
             output_dir: ".".to_string(),
@@ -3161,13 +3199,13 @@ mod tests {
             manifest_data: Some(vec![
                 ManifestEntry {
                     source: "query { search(term: \"a b\") { id } }".to_string(),
-                    path: "./spaced.codegen".to_string(),
-                    name: "SpacedDocument".to_string(),
+                    path: Some("./spaced.codegen".to_string()),
+                    name: Some("SpacedDocument".to_string()),
                 },
                 ManifestEntry {
                     source: "query { search(term: \"ab\") { id } }".to_string(),
-                    path: "./tight.codegen".to_string(),
-                    name: "TightDocument".to_string(),
+                    path: Some("./tight.codegen".to_string()),
+                    name: Some("TightDocument".to_string()),
                 },
             ]),
             output_dir: ".".to_string(),
@@ -3193,8 +3231,8 @@ mod tests {
         Config {
             manifest_data: Some(vec![ManifestEntry {
                 source: "query { me { id } }".to_string(),
-                path: "./query.codegen".to_string(),
-                name: "MyQueryDocument".to_string(),
+                path: Some("./query.codegen".to_string()),
+                name: Some("MyQueryDocument".to_string()),
             }]),
             output_dir: r"C:\proj\src\gen".to_string(),
             ..Default::default()
@@ -3246,8 +3284,8 @@ mod tests {
                 graphql_import_paths: Some(vec!["@/graphql".to_string()]),
                 manifest_data: Some(vec![ManifestEntry {
                     source: "fragment Link on LinkRecord { id }".to_string(),
-                    path: "./fragments/link.codegen".to_string(),
-                    name: "LinkFragmentDoc".to_string(),
+                    path: Some("./fragments/link.codegen".to_string()),
+                    name: Some("LinkFragmentDoc".to_string()),
                 }]),
                 ..Default::default()
             }]),

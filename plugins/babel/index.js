@@ -699,6 +699,13 @@ module.exports = function (babel) {
                     );
                   }
 
+                  // A fragment without a document, such as a `@type_only` one, is
+                  // listed with its source alone; `graphql.ts` gives it `{}`.
+                  if (!entry.name) {
+                    callPath.replaceWith(t.objectExpression([]));
+                    return;
+                  }
+
                   const relPath = getImportPath(outputIdx, entry.path);
 
                   const uniqueLocalName = getLocalName(outputIdx, entry.name, callPath.scope);

@@ -8,5 +8,8 @@
     "name": "GetUsersQueryDocument",
     "path": "./query.codegen",
     "source": "query GetUser($id: ID!) {\n  user(id: $id) {\n    ...UserFields\n  }\n}\n\nquery GetUsers {\n  users {\n    ...UserFields\n  }\n}\n"
+  },
+  {
+    "source": "fragment UserFields on User {\n  id\n  name\n  email\n}\n"
   }
 ]
