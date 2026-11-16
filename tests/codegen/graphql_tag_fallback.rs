@@ -184,3 +184,56 @@ projects:
         content
     );
 }
+
+/// A `@type_only` fragment has no runtime value with the fallback either: it
+/// is `{}` in `graphql.ts`, rather than parsed, and listed in the manifest by
+/// its source, so the build plugins give it `{}` as well.
+#[test]
+#[ntest::timeout(20000)]
+fn a_type_only_fragment_is_not_parsed_by_the_fallback() {
+    let bin_path = env!("CARGO_BIN_EXE_graphox");
+    let dir = tempfile::tempdir().unwrap();
+    let dir = dir.path();
+    std::fs::write(
+        dir.join("schema.graphql"),
+        "type Query { user(id: ID!): User } type User { id: ID! name: String }",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("shape.graphql"),
+        "fragment Shape on User @type_only { id name }\n",
+    )
+    .unwrap();
+    std::fs::write(
+        dir.join("graphox.yaml"),
+        r#"
+projects:
+  - schema: "schema.graphql"
+    include: "*.graphql"
+    output_dir: "gen"
+    codegen:
+      graphql_tag_fallback: true
+      generate_ast_for_fragments: true
+"#,
+    )
+    .unwrap();
+
+    let output = graphox(bin_path, dir).arg("codegen").output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    let entrypoint = std::fs::read_to_string(dir.join("gen/graphql.ts")).unwrap();
+    assert!(
+        entrypoint.contains("  \"fragment Shape on User @type_only { id name }\\n\": {},"),
+        "{entrypoint}"
+    );
+    let manifest = std::fs::read_to_string(dir.join("gen/manifest.json")).unwrap();
+    assert!(
+        manifest.contains("fragment Shape on User @type_only"),
+        "{manifest}"
+    );
+    assert!(!manifest.contains("\"name\""), "{manifest}");
+}

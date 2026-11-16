@@ -233,7 +233,9 @@ pub fn generate_entrypoint_content(
                 frag.source_text, frag.fragment_type_name
             ));
 
-            if !graphql_tag_fallback {
+            // A `@type_only` fragment is `{}` with the fallback too, as the
+            // build plugins make it: there is nothing for it to parse into.
+            if !graphql_tag_fallback || frag.is_type_only {
                 map_entries.push_str(&format!("  {:?}: {{}},\n", frag.source_text));
             }
         }

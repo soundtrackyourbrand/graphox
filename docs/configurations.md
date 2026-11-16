@@ -749,6 +749,8 @@ export function graphql(source: string): any {
 
 This allows you to continue development without waiting for the codegen to finish or when you have operations that are not yet matched by any project configuration.
 
+A `@type_only` fragment is not parsed by the fallback: `graphql()` returns `{}` for it, as it does without the fallback and as the build plugins do.
+
 ---
 
 ## Nullable Fields as Optional
