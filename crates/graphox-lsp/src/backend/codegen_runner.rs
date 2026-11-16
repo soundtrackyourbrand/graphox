@@ -938,9 +938,7 @@ pub async fn run_codegen(
                 .await;
         }
 
-        if let Err(e) =
-            graphox_codegen::manifest::write_manifest(&out_dir_path, &ops, &frags, codegen_config)
-        {
+        if let Err(e) = graphox_codegen::manifest::write_manifest(&out_dir_path, &ops, &frags) {
             client
                 .log_message(
                     MessageType::ERROR,

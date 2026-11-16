@@ -647,6 +647,10 @@ pub struct FragmentGenerated {
     pub fragment_type_name: String,
     pub source_text: String,
     pub document_name: String,
+    /// Whether the generated module exports `document_name`. False for a
+    /// `@type_only` fragment, and for every fragment when neither fragment AST
+    /// generation nor fragment masking is on: those are types alone.
+    pub has_document: bool,
     pub codegen_path: PathBuf,
     /// TypeScript this fragment contributed to its output file. Counted the same
     /// way as [`OperationGenerated::generated_bytes`].

@@ -72,10 +72,10 @@ async fn facts_pin_the_format() {
     run_codegen(config(&base_dir, true), false, false, false, None).await;
 
     let facts = fs::read_to_string(facts_path(&base_dir)).unwrap();
-    let expected = r#"{"version":1,"limits":[],"definitions":[
+    let expected = r#"{"version":2,"limits":[],"definitions":[
 {"document":"AddMutationDocument","kind":"mutation","name":"Add","returned":true,"selections":[{"arguments":[{"name":"id","value":{"kind":"variable","name":"id"}},{"name":"uris","value":{"kind":"list","values":[{"kind":"string","value":"a"},{"kind":"string","value":"b"}]}}],"kind":"field","name":"addTracks","parent":"Mutation","selections":[{"kind":"field","name":"id","parent":"Playlist","type":"ID!"}],"type":"Playlist"}],"source":"mutation Add($id: ID!) { addTracks(id: $id, uris: [\"a\", \"b\"]) { id } }\n","type":"Mutation","variables":[{"name":"id","type":"ID!"}]},
 {"document":"PageQueryDocument","kind":"query","name":"Page","returned":true,"selections":[{"arguments":[{"name":"id","value":{"kind":"variable","name":"id"}}],"kind":"field","name":"playlist","parent":"Query","selections":[{"alias":"t","arguments":[{"name":"first","value":{"kind":"variable","name":"first"}},{"name":"market","value":{"kind":"string","value":"SE"}}],"kind":"field","name":"tracks","parent":"Playlist","selections":[{"kind":"field","name":"edges","parent":"TrackConnection","selections":[{"kind":"field","name":"cursor","parent":"TrackEdge","type":"String!"},{"kind":"field","name":"node","parent":"TrackEdge","selections":[{"fragment":"Row","kind":"spread","on":"Track","selections":[{"kind":"field","name":"id","parent":"Track","type":"ID!"},{"directives":[{"arguments":[{"name":"if","value":{"kind":"boolean","value":true}}],"name":"include"}],"kind":"inline","on":"Track","selections":[{"kind":"field","name":"title","parent":"Track","type":"String"}]}]}],"type":"Track!"}],"type":"[TrackEdge!]!"}],"type":"TrackConnection!"}],"type":"Playlist"}],"source":"query Page($id: ID!, $first: Int = 100) { playlist(id: $id) { t: tracks(first: $first, market: \"SE\") { edges { cursor node { ...Row } } } } }\n","type":"Query","variables":[{"name":"id","type":"ID!"},{"default":{"kind":"int","value":"100"},"name":"first","type":"Int"}]},
-{"document":"RowDocument","kind":"fragment","name":"Row","returned":true,"selections":[{"kind":"field","name":"id","parent":"Track","type":"ID!"},{"directives":[{"arguments":[{"name":"if","value":{"kind":"boolean","value":true}}],"name":"include"}],"kind":"inline","on":"Track","selections":[{"kind":"field","name":"title","parent":"Track","type":"String"}]}],"source":"fragment Row on Track { id ... on Track @include(if: true) { title } }\n","type":"Track"}
+{"kind":"fragment","name":"Row","returned":true,"selections":[{"kind":"field","name":"id","parent":"Track","type":"ID!"},{"directives":[{"arguments":[{"name":"if","value":{"kind":"boolean","value":true}}],"name":"include"}],"kind":"inline","on":"Track","selections":[{"kind":"field","name":"title","parent":"Track","type":"String"}]}],"source":"fragment Row on Track { id ... on Track @include(if: true) { title } }\n","type":"Track"}
 ]}
 "#;
     assert_eq!(facts, expected);
@@ -240,6 +240,52 @@ async fn facts_list_the_projects_field_argument_limits() {
     let first_line = facts.lines().next().unwrap();
     assert_eq!(
         first_line,
-        r#"{"version":1,"limits":[{"argument":"first","field":"Album.tracks","severity":"warning","values":[100,500]},{"argument":"first","field":"Playlist.tracks","max":100,"reason":"page through it instead","severity":"error"}],"definitions":["#
+        r#"{"version":2,"limits":[{"argument":"first","field":"Album.tracks","severity":"warning","values":[100,500]},{"argument":"first","field":"Playlist.tracks","max":100,"reason":"page through it instead","severity":"error"}],"definitions":["#
     );
+}
+
+#[tokio::test]
+#[ntest::timeout(30000)]
+async fn a_type_only_fragment_has_no_document() {
+    let dir = workspace(&[
+        (
+            "shape.graphql",
+            "fragment Shape on Track @type_only { id }\n",
+        ),
+        ("row.graphql", "fragment Row on Track { title }\n"),
+    ]);
+    let base_dir = dir.path().canonicalize().unwrap();
+
+    run_codegen(
+        Config::new_test(
+            base_dir.to_path_buf(),
+            vec![
+                project(true).with_codegen(
+                    CodegenConfig::default()
+                        .with_emit_facts(true)
+                        .with_generate_ast_for_fragments(true),
+                ),
+            ],
+        ),
+        false,
+        false,
+        false,
+        None,
+    )
+    .await;
+
+    let facts = fs::read_to_string(facts_path(&base_dir)).unwrap();
+    let entries: BTreeMap<String, serde_json::Value> = facts
+        .lines()
+        .filter(|line| line.starts_with('{') && line.contains("\"kind\""))
+        .map(|line| {
+            let entry: serde_json::Value =
+                serde_json::from_str(line.trim_end_matches(',')).unwrap();
+            (entry["name"].as_str().unwrap().to_string(), entry)
+        })
+        .collect();
+
+    assert!(entries["Shape"].get("document").is_none(), "facts={facts}");
+    assert_eq!(entries["Shape"]["returned"], true, "facts={facts}");
+    assert_eq!(entries["Row"]["document"], "RowDocument", "facts={facts}");
 }
