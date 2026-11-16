@@ -31,10 +31,9 @@ definition it is: the block's first operation by type name, or, in a block of
 fragments alone, its first fragment by name. Its other definitions still have
 entries of their own, with `returned: false`. `document` names each
 definition's export, and is absent when there is none. A fragment's document
-is only exported when codegen generates documents for fragments
-(`generate_ast_for_fragments` or fragment masking), and never for a
-`@type_only` fragment; otherwise `graphql()` gives a block of fragments its
-type alone.
+is exported when fragment masking is on, or when `generate_ast_for_fragments`
+is on and the fragment is not `@type_only`; otherwise `graphql()` gives a
+block of fragments its type alone.
 
 ## Format
 
