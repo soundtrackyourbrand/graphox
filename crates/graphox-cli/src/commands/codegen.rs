@@ -1132,7 +1132,7 @@ fn generate_project_files_sync(
             let masking_path = out_dir_path.join("fragment-masking.ts");
             let masking_content =
                 codegen::generate_fragment_masking_file(fragment_masking.unmask_function_name());
-            if let Err(e) = std::fs::write(&masking_path, masking_content) {
+            if let Err(e) = write_if_changed(&masking_path, &masking_content) {
                 eprintln!("{}: {}", "Failed to write fragment-masking".red(), e);
                 success = false;
             }
@@ -1144,7 +1144,7 @@ fn generate_project_files_sync(
             params.emit_extensions,
             params.codegen_config.entrypoint_name(),
         );
-        if let Err(e) = std::fs::write(&index_path, index_content) {
+        if let Err(e) = write_if_changed(&index_path, &index_content) {
             eprintln!("{}: {}", "Failed to write index.ts".red(), e);
             success = false;
         }
@@ -1158,7 +1158,7 @@ fn generate_project_files_sync(
                     params.scalars,
                     params.schema_import,
                 );
-                if let Err(e) = std::fs::write(&permissions_path, content) {
+                if let Err(e) = write_if_changed(&permissions_path, &content) {
                     eprintln!("{}: {}", "Failed to write permissions.ts".red(), e);
                     success = false;
                 }
@@ -1177,6 +1177,16 @@ fn generate_project_files_sync(
     } else {
         Err(())
     }
+}
+
+/// Writes `content` unless the file already holds it. A rewrite with the same bytes
+/// still moves the mtime, which makes build caches and file watchers treat the
+/// output as changed and redo everything downstream of it.
+fn write_if_changed(path: &Path, content: &str) -> std::io::Result<()> {
+    if std::fs::read(path).is_ok_and(|existing| existing == content.as_bytes()) {
+        return Ok(());
+    }
+    std::fs::write(path, content)
 }
 
 fn clean_project_files_sync(
