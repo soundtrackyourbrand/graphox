@@ -27,4 +27,5 @@ mod suffix_consistency;
 mod swc_cli;
 mod template_tags;
 mod tsx_support;
+mod unchanged_outputs_test;
 mod usage_cli;
